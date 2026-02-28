@@ -21,6 +21,7 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QWidget,
     QLineEdit,
+    QMessageBox,
 )
 
 from app.services.audio_player import RepeatMode
@@ -53,10 +54,12 @@ class MainWindow(QMainWindow):
         self.view_mode = QComboBox()
         self.view_mode.addItems(["List", "Grid"])
         self.count_label = QLabel("Tracks: 0")
+        self.scan_status_label = QLabel("")
         top_row.addWidget(self.add_folder_btn)
         top_row.addWidget(self.rescan_btn)
         top_row.addWidget(self.search_edit, 1)
         top_row.addWidget(self.view_mode)
+        top_row.addWidget(self.scan_status_label)
         top_row.addWidget(self.count_label)
 
         self.track_table = QTableView()
@@ -150,6 +153,9 @@ class MainWindow(QMainWindow):
         self.vm.player.duration_changed.connect(self._on_player_duration)
 
         self.vm.library_changed.connect(self._on_library_changed)
+        self.vm.scan_started.connect(self._on_scan_started)
+        self.vm.scan_finished.connect(self._on_scan_finished)
+        self.vm.scan_failed.connect(self._on_scan_failed)
         self.vm.now_playing_changed.connect(self.now_playing_label.setText)
         self.vm.position_text_changed.connect(self.current_time_label.setText)
         self.vm.duration_text_changed.connect(self.total_time_label.setText)
@@ -162,6 +168,20 @@ class MainWindow(QMainWindow):
     def _on_library_changed(self, count: int) -> None:
         self.count_label.setText(f"Tracks: {count}")
         self.track_table.resizeColumnsToContents()
+
+    def _on_scan_started(self) -> None:
+        self.scan_status_label.setText("Scanning library...")
+        self.add_folder_btn.setEnabled(False)
+        self.rescan_btn.setEnabled(False)
+
+    def _on_scan_finished(self, _count: int) -> None:
+        self.scan_status_label.setText("")
+        self.add_folder_btn.setEnabled(True)
+        self.rescan_btn.setEnabled(True)
+
+    def _on_scan_failed(self, message: str) -> None:
+        self._on_scan_finished(0)
+        QMessageBox.critical(self, "Scan failed", message)
 
     def _on_player_position(self, position: int) -> None:
         if not self._is_seeking:

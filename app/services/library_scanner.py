@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import hashlib
+import os
+import wave
 from pathlib import Path
 from typing import Iterable
 
-from mutagen import File
+from mutagen.aac import AAC
 from mutagen.flac import FLAC
 from mutagen.id3 import ID3NoHeaderError
 from mutagen.mp3 import MP3
@@ -30,32 +32,68 @@ class LibraryScanner:
             if not folder.exists() or not folder.is_dir():
                 continue
 
-            for path in folder.rglob("*"):
-                if not path.is_file():
-                    continue
-                if path.suffix.lower() not in SUPPORTED_EXTENSIONS:
-                    continue
-                resolved = path.resolve()
-                if resolved in seen:
-                    continue
-                seen.add(resolved)
-                track = self._parse_track(resolved)
-                if track:
-                    tracks.append(track)
+            for root, _, files in os.walk(folder):
+                root_path = Path(root)
+                for filename in files:
+                    path = root_path / filename
+                    if path.suffix.lower() not in SUPPORTED_EXTENSIONS:
+                        continue
+                    resolved = path.resolve()
+                    if resolved in seen:
+                        continue
+                    seen.add(resolved)
+                    track = self._parse_track(resolved)
+                    if track:
+                        tracks.append(track)
 
         tracks.sort(key=lambda t: (t.artist.lower(), t.album.lower(), t.title.lower()))
         return tracks
 
     def _parse_track(self, path: Path) -> Track | None:
-        audio_easy = File(str(path), easy=True)
-        if audio_easy is None:
-            return None
+        suffix = path.suffix.lower()
+        title = path.stem
+        artist = "Unknown Artist"
+        album = "Unknown Album"
+        genre = "Unknown"
+        duration = 0.0
 
-        title = self._first_tag(audio_easy, "title", fallback=path.stem)
-        artist = self._first_tag(audio_easy, "artist", fallback="Unknown Artist")
-        album = self._first_tag(audio_easy, "album", fallback="Unknown Album")
-        genre = self._first_tag(audio_easy, "genre", fallback="Unknown")
-        duration = float(getattr(getattr(audio_easy, "info", None), "length", 0.0) or 0.0)
+        try:
+            if suffix == ".mp3":
+                mp3 = MP3(str(path))
+                duration = float(getattr(mp3.info, "length", 0.0) or 0.0)
+                if mp3.tags:
+                    title = self._id3_value(mp3, "TIT2", title)
+                    artist = self._id3_value(mp3, "TPE1", artist)
+                    album = self._id3_value(mp3, "TALB", album)
+                    genre = self._id3_value(mp3, "TCON", genre)
+            elif suffix == ".flac":
+                flac = FLAC(str(path))
+                duration = float(getattr(flac.info, "length", 0.0) or 0.0)
+                title = self._first_text(flac.get("title"), title)
+                artist = self._first_text(flac.get("artist"), artist)
+                album = self._first_text(flac.get("album"), album)
+                genre = self._first_text(flac.get("genre"), genre)
+            elif suffix in {".m4a", ".aac"}:
+                try:
+                    mp4 = MP4(str(path))
+                    duration = float(getattr(mp4.info, "length", 0.0) or 0.0)
+                    if mp4.tags:
+                        title = self._first_text(mp4.tags.get("\xa9nam"), title)
+                        artist = self._first_text(mp4.tags.get("\xa9ART"), artist)
+                        album = self._first_text(mp4.tags.get("\xa9alb"), album)
+                        genre = self._first_text(mp4.tags.get("\xa9gen"), genre)
+                except Exception:
+                    # Some AAC files are ADTS streams without MP4 container metadata.
+                    aac = AAC(str(path))
+                    duration = float(getattr(aac.info, "length", 0.0) or 0.0)
+            elif suffix == ".wav":
+                with wave.open(str(path), "rb") as wav_file:
+                    frames = wav_file.getnframes()
+                    framerate = wav_file.getframerate()
+                    if framerate > 0:
+                        duration = float(frames) / float(framerate)
+        except Exception:
+            return None
 
         cover_path = self._extract_embedded_cover(path)
         if not cover_path:
@@ -72,12 +110,23 @@ class LibraryScanner:
         )
 
     @staticmethod
-    def _first_tag(audio, key: str, fallback: str) -> str:
-        values = audio.get(key)
+    def _first_text(values, fallback: str) -> str:
         if not values:
             return fallback
         first = values[0]
         return str(first).strip() if first else fallback
+
+    @staticmethod
+    def _id3_value(audio: MP3, frame_name: str, fallback: str) -> str:
+        if not audio.tags:
+            return fallback
+        frames = audio.tags.getall(frame_name)
+        if not frames:
+            return fallback
+        text = getattr(frames[0], "text", None)
+        if not text:
+            return fallback
+        return str(text[0]).strip() if text[0] else fallback
 
     def _extract_embedded_cover(self, path: Path) -> Path | None:
         suffix = path.suffix.lower()

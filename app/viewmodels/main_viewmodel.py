@@ -2,12 +2,39 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from PySide6.QtCore import QAbstractListModel, QAbstractTableModel, QModelIndex, QObject, Qt, Signal
+from PySide6.QtCore import (
+    QAbstractListModel,
+    QAbstractTableModel,
+    QModelIndex,
+    QObject,
+    QThread,
+    Qt,
+    Signal,
+    Slot,
+)
 from PySide6.QtGui import QIcon, QPixmap
 
 from app.models.track import Track
 from app.services.audio_player import AudioPlayerService, RepeatMode
 from app.services.library_scanner import LibraryScanner
+
+
+class ScanWorker(QObject):
+    finished = Signal(object)
+    failed = Signal(str)
+
+    def __init__(self, scanner: LibraryScanner, folders: list[Path]) -> None:
+        super().__init__()
+        self._scanner = scanner
+        self._folders = folders
+
+    @Slot()
+    def run(self) -> None:
+        try:
+            tracks = self._scanner.scan_folders(self._folders)
+            self.finished.emit(tracks)
+        except Exception as exc:
+            self.failed.emit(str(exc))
 
 
 class TrackTableModel(QAbstractTableModel):
@@ -118,6 +145,9 @@ class MainViewModel(QObject):
     now_playing_changed = Signal(str)
     position_text_changed = Signal(str)
     duration_text_changed = Signal(str)
+    scan_started = Signal()
+    scan_finished = Signal(int)
+    scan_failed = Signal(str)
 
     def __init__(self) -> None:
         super().__init__()
@@ -137,6 +167,8 @@ class MainViewModel(QObject):
         self._player.duration_changed.connect(self._on_duration_changed)
 
         self._last_duration_ms = 0
+        self._scan_thread: QThread | None = None
+        self._scan_worker: ScanWorker | None = None
 
     @property
     def player(self) -> AudioPlayerService:
@@ -150,8 +182,20 @@ class MainViewModel(QObject):
         self.rescan_library()
 
     def rescan_library(self) -> None:
-        self._all_tracks = self._scanner.scan_folders(self._folders)
-        self._apply_filter()
+        if self._scan_thread is not None:
+            return
+
+        self.scan_started.emit()
+        self._scan_thread = QThread()
+        self._scan_worker = ScanWorker(self._scanner, list(self._folders))
+        self._scan_worker.moveToThread(self._scan_thread)
+
+        self._scan_thread.started.connect(self._scan_worker.run)
+        self._scan_worker.finished.connect(self._on_scan_finished)
+        self._scan_worker.failed.connect(self._on_scan_failed)
+        self._scan_worker.finished.connect(self._cleanup_scan)
+        self._scan_worker.failed.connect(self._cleanup_scan)
+        self._scan_thread.start()
 
     def set_search_text(self, text: str) -> None:
         self._search_text = text.strip().lower()
@@ -224,3 +268,27 @@ class MainViewModel(QObject):
     def _on_duration_changed(self, duration_ms: int) -> None:
         self._last_duration_ms = duration_ms
         self.duration_text_changed.emit(self.ms_to_time(duration_ms))
+
+    @Slot(object)
+    def _on_scan_finished(self, tracks: list[Track]) -> None:
+        self._all_tracks = tracks
+        self._apply_filter()
+        self.scan_finished.emit(len(self._all_tracks))
+
+    @Slot(str)
+    def _on_scan_failed(self, message: str) -> None:
+        self.scan_failed.emit(message or "Unknown scan error")
+
+    @Slot()
+    def _cleanup_scan(self) -> None:
+        if self._scan_thread is None:
+            return
+        thread = self._scan_thread
+        worker = self._scan_worker
+        self._scan_thread = None
+        self._scan_worker = None
+        thread.quit()
+        thread.wait()
+        thread.deleteLater()
+        if worker is not None:
+            worker.deleteLater()

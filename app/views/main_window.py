@@ -318,7 +318,6 @@ class MainWindow(QMainWindow):
             """
             /* Material 3 expressive dark tokens */
             QWidget {
-                background: #141218;
                 color: #E8E0F0;
                 font-family: Inter, "SF Pro Text", Arial;
                 font-size: 13px;
@@ -326,7 +325,7 @@ class MainWindow(QMainWindow):
             * {
                 selection-background-color: #6DDA92;
             }
-            QMainWindow, QWidget {
+            QMainWindow {
                 background: qradialgradient(cx:0.05, cy:0.0, radius:1.2,
                                             fx:0.05, fy:0.0,
                                             stop:0 #273428,

@@ -96,8 +96,15 @@ class MainWindow(QMainWindow):
         brand_row.addStretch(1)
 
         self.home_btn = QPushButton("Home")
+        self.home_btn.setObjectName("navPill")
+        self.home_btn.setCheckable(True)
         self.search_btn = QPushButton("Search")
+        self.search_btn.setObjectName("navPill")
+        self.search_btn.setCheckable(True)
         self.library_btn = QPushButton("Library")
+        self.library_btn.setObjectName("navPill")
+        self.library_btn.setCheckable(True)
+        self.library_btn.setChecked(True)
 
         nav_title = QLabel("Playlists")
         nav_title.setObjectName("sectionTitle")
@@ -309,57 +316,82 @@ class MainWindow(QMainWindow):
     def _apply_styles(self) -> None:
         self.setStyleSheet(
             """
-            * {
-                color: #E8ECEA;
-                font-family: Inter, "SF Pro Text", "Segoe UI", Arial;
+            /* Material 3 expressive dark tokens */
+            QWidget {
+                background: #141218;
+                color: #E8E0F0;
+                font-family: Inter, "SF Pro Text", Arial;
                 font-size: 13px;
             }
+            * {
+                selection-background-color: #6DDA92;
+            }
             QMainWindow, QWidget {
-                background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
-                                            stop:0 #101312, stop:1 #0B0E0D);
+                background: qradialgradient(cx:0.05, cy:0.0, radius:1.2,
+                                            fx:0.05, fy:0.0,
+                                            stop:0 #273428,
+                                            stop:0.22 #1C1A21,
+                                            stop:1 #141218);
             }
             QFrame#sidebar, QFrame#centerPanel, QFrame#playerBar {
-                background: rgba(28, 34, 31, 0.78);
-                border: 1px solid rgba(255, 255, 255, 0.08);
-                border-radius: 24px;
+                background: rgba(35, 33, 43, 0.92);
+                border: 1px solid rgba(255, 255, 255, 0.06);
+                border-radius: 28px;
             }
             QLabel#brand {
-                font-size: 28px;
-                font-weight: 700;
-                color: #FFFFFF;
+                font-size: 24px;
+                font-weight: 800;
+                color: #F6EEFF;
                 padding: 2px 2px 10px 2px;
             }
             QLabel#brandLogo {
                 background: transparent;
             }
             QLabel#sectionTitle {
-                color: #98A29C;
+                color: #B8AEC8;
                 font-size: 11px;
                 text-transform: uppercase;
                 letter-spacing: 1px;
-                padding-top: 8px;
+                padding-top: 10px;
             }
             QLabel#scanStatus {
-                color: #1DB954;
-                font-weight: 600;
+                color: #7EE39A;
+                font-weight: 700;
             }
             QLabel#collectionInfo {
-                color: #B6C1BB;
-                font-weight: 600;
+                color: #D5CDE1;
+                background: rgba(126, 227, 154, 0.16);
+                border: 1px solid rgba(126, 227, 154, 0.42);
+                border-radius: 14px;
+                padding: 4px 10px;
+                font-weight: 700;
             }
             QPushButton {
-                background: rgba(255, 255, 255, 0.06);
-                border: 1px solid rgba(255, 255, 255, 0.10);
-                border-radius: 14px;
-                padding: 8px 12px;
-                color: #E7ECE9;
+                background: rgba(208, 188, 255, 0.10);
+                border: 1px solid rgba(255, 255, 255, 0.09);
+                border-radius: 18px;
+                padding: 9px 14px;
+                color: #F2EAFB;
             }
             QPushButton:hover {
-                background: rgba(29, 185, 84, 0.18);
-                border: 1px solid rgba(29, 185, 84, 0.60);
+                background: rgba(126, 227, 154, 0.20);
+                border: 1px solid rgba(126, 227, 154, 0.65);
             }
             QPushButton:pressed {
-                background: rgba(29, 185, 84, 0.28);
+                background: rgba(126, 227, 154, 0.30);
+            }
+            QPushButton#navPill {
+                text-align: left;
+                font-weight: 700;
+                border-radius: 20px;
+                padding: 10px 14px;
+                background: rgba(255, 255, 255, 0.04);
+                color: #DCD2E9;
+            }
+            QPushButton#navPill:checked {
+                background: rgba(126, 227, 154, 0.24);
+                border: 1px solid rgba(126, 227, 154, 0.68);
+                color: #F2FFF5;
             }
             QPushButton#iconCircle {
                 border-radius: 20px;
@@ -372,120 +404,120 @@ class MainWindow(QMainWindow):
                 padding: 0px;
                 font-size: 18px;
                 font-weight: 700;
-                background: #1DB954;
-                border: 1px solid #1DB954;
-                color: #0A0F0C;
+                background: #7EE39A;
+                border: 1px solid #7EE39A;
+                color: #132117;
             }
             QPushButton#playCircle:hover {
-                background: #1ED760;
-                border: 1px solid #1ED760;
+                background: #94EEAE;
+                border: 1px solid #94EEAE;
             }
             QPushButton#playCircle:pressed {
-                background: #15A24A;
-                border: 1px solid #15A24A;
+                background: #5DCC7E;
+                border: 1px solid #5DCC7E;
             }
             QPushButton#iconCircle:checked {
-                background: rgba(29, 185, 84, 0.32);
-                border: 1px solid rgba(29, 185, 84, 0.88);
-                color: #DDFCDF;
+                background: rgba(126, 227, 154, 0.30);
+                border: 1px solid rgba(126, 227, 154, 0.85);
+                color: #EDFFF2;
             }
             QLineEdit {
                 background: rgba(255, 255, 255, 0.06);
-                border: 1px solid rgba(255, 255, 255, 0.12);
-                border-radius: 16px;
-                padding: 10px 12px;
-                selection-background-color: #1DB954;
+                border: 1px solid rgba(255, 255, 255, 0.11);
+                border-radius: 18px;
+                padding: 11px 14px;
             }
             QLineEdit:focus {
-                border: 1px solid rgba(29, 185, 84, 0.9);
+                border: 1px solid rgba(126, 227, 154, 0.9);
             }
             QListWidget#playlistList {
                 background: transparent;
                 border: none;
-                border-radius: 14px;
+                border-radius: 18px;
                 padding: 2px;
             }
             QListWidget#playlistList::item {
                 background: transparent;
-                border-radius: 12px;
-                padding: 9px;
+                border-radius: 15px;
+                padding: 10px;
                 margin: 2px 0px;
-                color: #C3CBC6;
+                color: #D3C8E1;
             }
             QListWidget#playlistList::item:hover {
-                background: rgba(255, 255, 255, 0.08);
+                background: rgba(255, 255, 255, 0.10);
                 color: #FFFFFF;
             }
             QListWidget#playlistList::item:selected {
-                background: rgba(29, 185, 84, 0.28);
-                color: #FFFFFF;
+                background: rgba(126, 227, 154, 0.28);
+                color: #F6FFF8;
+                border: 1px solid rgba(126, 227, 154, 0.62);
             }
             QTableView#trackTable {
-                background: rgba(12, 16, 14, 0.72);
+                background: rgba(25, 23, 31, 0.82);
                 border: 1px solid rgba(255, 255, 255, 0.05);
-                border-radius: 20px;
-                padding: 6px;
+                border-radius: 24px;
+                padding: 8px;
                 alternate-background-color: transparent;
-                selection-background-color: rgba(29, 185, 84, 0.25);
-                selection-color: #F8FFFA;
+                selection-background-color: rgba(126, 227, 154, 0.24);
+                selection-color: #F5FFF7;
             }
             QHeaderView::section {
                 background: transparent;
-                color: #97A29B;
+                color: #B7ABC6;
                 border: none;
-                padding: 8px;
-                font-weight: 600;
+                padding: 10px 8px;
+                font-weight: 700;
             }
             QTableView#trackTable::item {
                 border: none;
-                padding: 8px;
+                padding: 10px 8px;
                 margin: 2px;
-                border-radius: 14px;
+                border-radius: 16px;
                 background: transparent;
             }
             QTableView#trackTable::item:hover {
-                background: rgba(255, 255, 255, 0.06);
+                background: rgba(255, 255, 255, 0.08);
             }
             QLabel#coverLabel {
-                border-radius: 16px;
+                border-radius: 20px;
                 background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
-                                            stop:0 #303C36, stop:1 #1A201D);
-                border: 1px solid rgba(255, 255, 255, 0.10);
+                                            stop:0 #324A38, stop:1 #1C2A20);
+                border: 1px solid rgba(255, 255, 255, 0.12);
             }
             QLabel#nowPlaying {
-                font-size: 14px;
-                font-weight: 600;
-                color: #F0F5F2;
+                font-size: 15px;
+                font-weight: 700;
+                color: #F7EEFF;
             }
             QLabel#meta {
-                color: #98A29C;
+                color: #C6BAD5;
                 font-size: 12px;
             }
             QSlider::groove:horizontal {
                 border: none;
                 height: 6px;
                 border-radius: 3px;
-                background: rgba(255, 255, 255, 0.18);
+                background: rgba(255, 255, 255, 0.24);
             }
             QSlider#seekSlider::sub-page:horizontal,
             QSlider::sub-page:horizontal {
                 background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
-                                            stop:0 #1AAE4F, stop:1 #1ED760);
+                                            stop:0 #58C778, stop:1 #91EDA8);
                 border-radius: 3px;
             }
             QSlider::add-page:horizontal {
-                background: rgba(255, 255, 255, 0.18);
+                background: rgba(255, 255, 255, 0.20);
                 border-radius: 3px;
             }
             QSlider::handle:horizontal {
-                background: #FFFFFF;
-                border: 2px solid #1DB954;
+                background: #EAFBEF;
+                border: 2px solid #72D890;
                 width: 16px;
                 margin: -7px 0;
                 border-radius: 10px;
             }
             QSlider::handle:horizontal:hover {
-                background: #DDF9E7;
+                background: #FFFFFF;
             }
             """
         )
@@ -505,7 +537,7 @@ class MainWindow(QMainWindow):
         self.playlist_list.itemClicked.connect(self._on_playlist_selected)
         self.home_btn.clicked.connect(lambda: self._set_mode("Library"))
         self.library_btn.clicked.connect(lambda: self._set_mode("Library"))
-        self.search_btn.clicked.connect(self.search_edit.setFocus)
+        self.search_btn.clicked.connect(self._focus_search)
 
         self.track_table.doubleClicked.connect(lambda idx: self.vm.play_index(idx.row()))
 
@@ -543,12 +575,21 @@ class MainWindow(QMainWindow):
 
     def _set_mode(self, mode: str) -> None:
         self.vm.set_collection_mode(mode)
+        self.library_btn.setChecked(mode == "Library")
+        self.home_btn.setChecked(mode == "Library")
+        self.search_btn.setChecked(False)
         items = self.playlist_list.findItems(mode, Qt.MatchFlag.MatchExactly)
         if items:
             self.playlist_list.setCurrentItem(items[0])
 
     def _on_playlist_selected(self, item: QListWidgetItem) -> None:
         self._set_mode(item.text())
+
+    def _focus_search(self) -> None:
+        self.search_btn.setChecked(True)
+        self.home_btn.setChecked(False)
+        self.library_btn.setChecked(False)
+        self.search_edit.setFocus()
 
     def _on_library_changed(self, count: int) -> None:
         self.count_label.setText(f"{count} tracks")

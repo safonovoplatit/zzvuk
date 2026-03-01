@@ -3,25 +3,28 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-from PySide6.QtCore import QSize, Qt
+from PySide6.QtCore import QEasingCurve, QPointF, QPropertyAnimation, QSize, Qt
+from PySide6.QtGui import QColor, QIcon, QLinearGradient, QPainter, QPainterPath, QPixmap, QPolygonF
 from PySide6.QtWidgets import (
     QApplication,
-    QCheckBox,
-    QComboBox,
+    QAbstractItemView,
     QFileDialog,
+    QFrame,
     QGridLayout,
     QHBoxLayout,
+    QHeaderView,
     QLabel,
-    QListView,
+    QLineEdit,
+    QListWidget,
+    QListWidgetItem,
     QMainWindow,
+    QMessageBox,
     QPushButton,
+    QGraphicsDropShadowEffect,
     QSlider,
-    QStackedWidget,
     QTableView,
     QVBoxLayout,
     QWidget,
-    QLineEdit,
-    QMessageBox,
 )
 
 from app.services.audio_player import RepeatMode
@@ -31,146 +34,527 @@ from app.viewmodels.main_viewmodel import MainViewModel
 class MainWindow(QMainWindow):
     def __init__(self) -> None:
         super().__init__()
-        self.setWindowTitle("ZZvuk Music Player")
-        self.resize(1200, 760)
+        self.setWindowTitle("ZZvuk")
+        self.resize(1360, 860)
 
         self.vm = MainViewModel()
         self._is_seeking = False
+        self._progress_anim = QPropertyAnimation()
+        self._repeat_modes = [RepeatMode.OFF, RepeatMode.TRACK, RepeatMode.PLAYLIST]
+        self._repeat_index = 0
 
         self._build_ui()
         self._connect_signals()
+        self._apply_styles()
+        self._apply_depth()
 
     def _build_ui(self) -> None:
-        central = QWidget(self)
-        main_layout = QVBoxLayout(central)
-        main_layout.setContentsMargins(12, 12, 12, 12)
-        main_layout.setSpacing(10)
+        root = QWidget(self)
+        root_layout = QVBoxLayout(root)
+        root_layout.setContentsMargins(16, 16, 16, 16)
+        root_layout.setSpacing(14)
 
-        top_row = QHBoxLayout()
+        content_row = QHBoxLayout()
+        content_row.setSpacing(14)
+
+        self.sidebar = self._build_sidebar()
+        self.center = self._build_center_panel()
+
+        content_row.addWidget(self.sidebar)
+        content_row.addWidget(self.center, 1)
+
+        self.player_bar = self._build_player_bar()
+
+        root_layout.addLayout(content_row, 1)
+        root_layout.addWidget(self.player_bar)
+        self.setCentralWidget(root)
+
+    def _build_sidebar(self) -> QFrame:
+        frame = QFrame()
+        frame.setObjectName("sidebar")
+        frame.setFixedWidth(260)
+
+        layout = QVBoxLayout(frame)
+        layout.setContentsMargins(16, 16, 16, 16)
+        layout.setSpacing(10)
+
+        brand_wrap = QWidget()
+        brand_row = QHBoxLayout(brand_wrap)
+        brand_row.setContentsMargins(0, 0, 0, 0)
+        brand_row.setSpacing(10)
+
+        brand_logo = QLabel()
+        brand_logo.setObjectName("brandLogo")
+        brand_logo.setFixedSize(40, 40)
+        brand_logo.setPixmap(self._build_brand_logo(40))
+        self.setWindowIcon(QIcon(self._build_brand_logo(256)))
+
+        brand = QLabel("Z Zvuk (alpha)")
+        brand.setObjectName("brand")
+        brand_row.addWidget(brand_logo)
+        brand_row.addWidget(brand)
+        brand_row.addStretch(1)
+
+        self.home_btn = QPushButton("Home")
+        self.search_btn = QPushButton("Search")
+        self.library_btn = QPushButton("Library")
+
+        nav_title = QLabel("Playlists")
+        nav_title.setObjectName("sectionTitle")
+
+        self.playlist_list = QListWidget()
+        self.playlist_list.setObjectName("playlistList")
+        for name in ["Library", "Daily Mix", "Top Hits", "Favourites"]:
+            item = QListWidgetItem(name)
+            self.playlist_list.addItem(item)
+        self.playlist_list.setCurrentRow(0)
+
         self.add_folder_btn = QPushButton("Add Folder")
         self.rescan_btn = QPushButton("Rescan")
+
+        layout.addWidget(brand_wrap)
+        layout.addWidget(self.home_btn)
+        layout.addWidget(self.search_btn)
+        layout.addWidget(self.library_btn)
+        layout.addSpacing(12)
+        layout.addWidget(nav_title)
+        layout.addWidget(self.playlist_list, 1)
+        layout.addWidget(self.add_folder_btn)
+        layout.addWidget(self.rescan_btn)
+        return frame
+
+    def _build_center_panel(self) -> QFrame:
+        frame = QFrame()
+        frame.setObjectName("centerPanel")
+
+        layout = QVBoxLayout(frame)
+        layout.setContentsMargins(16, 16, 16, 16)
+        layout.setSpacing(12)
+
+        top_bar = QHBoxLayout()
         self.search_edit = QLineEdit()
-        self.search_edit.setPlaceholderText("Search by track title or artist...")
-        self.view_mode = QComboBox()
-        self.view_mode.addItems(["List", "Grid"])
-        self.count_label = QLabel("Tracks: 0")
+        self.search_edit.setPlaceholderText("Search tracks or artists")
+        self.count_label = QLabel("0 tracks")
         self.scan_status_label = QLabel("")
-        top_row.addWidget(self.add_folder_btn)
-        top_row.addWidget(self.rescan_btn)
-        top_row.addWidget(self.search_edit, 1)
-        top_row.addWidget(self.view_mode)
-        top_row.addWidget(self.scan_status_label)
-        top_row.addWidget(self.count_label)
+        self.scan_status_label.setObjectName("scanStatus")
+        self.collection_info_label = QLabel("Library")
+        self.collection_info_label.setObjectName("collectionInfo")
+
+        top_bar.addWidget(self.search_edit, 1)
+        top_bar.addWidget(self.collection_info_label)
+        top_bar.addWidget(self.scan_status_label)
+        top_bar.addWidget(self.count_label)
 
         self.track_table = QTableView()
         self.track_table.setModel(self.vm.table_model)
-        self.track_table.setSelectionBehavior(QTableView.SelectionBehavior.SelectRows)
-        self.track_table.setSelectionMode(QTableView.SelectionMode.SingleSelection)
-        self.track_table.setAlternatingRowColors(True)
-        self.track_table.horizontalHeader().setStretchLastSection(True)
+        self.track_table.setObjectName("trackTable")
+        self.track_table.setIconSize(QSize(36, 36))
+        self.track_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        self.track_table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
+        self.track_table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        self.track_table.setAlternatingRowColors(False)
+        self.track_table.setShowGrid(False)
+        self.track_table.setMouseTracking(True)
+        self.track_table.verticalHeader().setVisible(False)
+        self.track_table.verticalHeader().setDefaultSectionSize(48)
 
-        self.track_grid = QListView()
-        self.track_grid.setModel(self.vm.grid_model)
-        self.track_grid.setViewMode(QListView.ViewMode.IconMode)
-        self.track_grid.setResizeMode(QListView.ResizeMode.Adjust)
-        self.track_grid.setUniformItemSizes(True)
-        self.track_grid.setWordWrap(True)
-        self.track_grid.setSpacing(10)
-        self.track_grid.setGridSize(QSize(180, 210))
-        self.track_grid.setIconSize(QSize(140, 140))
+        header = self.track_table.horizontalHeader()
+        header.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
+        header.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
+        header.setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)
+        header.setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
 
-        self.views_stack = QStackedWidget()
-        self.views_stack.addWidget(self.track_table)
-        self.views_stack.addWidget(self.track_grid)
+        layout.addLayout(top_bar)
+        layout.addWidget(self.track_table, 1)
+        return frame
 
-        playback_row = QGridLayout()
-        self.now_playing_label = QLabel("Now playing: -")
+    def _build_player_bar(self) -> QFrame:
+        frame = QFrame()
+        frame.setObjectName("playerBar")
+        frame.setFixedHeight(132)
 
-        self.prev_btn = QPushButton("Previous")
-        self.play_btn = QPushButton("Play/Pause")
-        self.stop_btn = QPushButton("Stop")
-        self.next_btn = QPushButton("Next")
+        layout = QGridLayout(frame)
+        layout.setContentsMargins(16, 14, 16, 14)
+        layout.setHorizontalSpacing(14)
+        layout.setVerticalSpacing(6)
 
-        self.seek_slider = QSlider(Qt.Orientation.Horizontal)
-        self.seek_slider.setRange(0, 0)
+        self.cover_label = QLabel()
+        self.cover_label.setFixedSize(72, 72)
+        self.cover_label.setObjectName("coverLabel")
+
+        self.now_playing_label = QLabel("Nothing playing")
+        self.now_playing_label.setObjectName("nowPlaying")
+        self.meta_label = QLabel("Pick a track to start")
+        self.meta_label.setObjectName("meta")
+
+        left_col = QVBoxLayout()
+        left_col.setSpacing(2)
+        left_col.addWidget(self.now_playing_label)
+        left_col.addWidget(self.meta_label)
+
+        self.shuffle_btn = self._make_transport_button("⇄", "Shuffle")
+        self.shuffle_btn.setCheckable(True)
+        self.favourite_btn = self._make_transport_button("♡", "Add to favourites")
+        self.favourite_btn.setCheckable(True)
+        self.prev_btn = self._make_transport_button("⏮", "Previous")
+        self.play_btn = self._make_transport_button("▶", "Play/Pause", play=True)
+        self.next_btn = self._make_transport_button("⏭", "Next")
+        self.repeat_btn = self._make_transport_button("↻", "Repeat: Off")
+        self.repeat_btn.setCheckable(True)
+
+        controls = QHBoxLayout()
+        controls.setSpacing(8)
+        controls.addStretch(1)
+        controls.addWidget(self.favourite_btn)
+        controls.addWidget(self.shuffle_btn)
+        controls.addWidget(self.prev_btn)
+        controls.addWidget(self.play_btn)
+        controls.addWidget(self.next_btn)
+        controls.addWidget(self.repeat_btn)
+        controls.addStretch(1)
+
+        timeline = QHBoxLayout()
+        timeline.setSpacing(8)
         self.current_time_label = QLabel("00:00")
         self.total_time_label = QLabel("00:00")
+        self.seek_slider = QSlider(Qt.Orientation.Horizontal)
+        self.seek_slider.setRange(0, 0)
+        self.seek_slider.setObjectName("seekSlider")
 
+        timeline.addWidget(self.current_time_label)
+        timeline.addWidget(self.seek_slider, 1)
+        timeline.addWidget(self.total_time_label)
+
+        center_col = QVBoxLayout()
+        center_col.setSpacing(4)
+        center_col.addLayout(controls)
+        center_col.addLayout(timeline)
+
+        right_col = QHBoxLayout()
+        right_col.setSpacing(8)
+        self.volume_text = QLabel("Volume")
         self.volume_slider = QSlider(Qt.Orientation.Horizontal)
         self.volume_slider.setRange(0, 100)
         self.volume_slider.setValue(80)
-        self.volume_label = QLabel("Volume")
+        self.volume_slider.setFixedWidth(130)
+        right_col.addWidget(self.volume_text)
+        right_col.addWidget(self.volume_slider)
 
-        self.repeat_combo = QComboBox()
-        self.repeat_combo.addItems(
-            [RepeatMode.OFF.value, RepeatMode.TRACK.value, RepeatMode.PLAYLIST.value]
+        layout.addWidget(self.cover_label, 0, 0, 2, 1)
+        layout.addLayout(left_col, 0, 1, 2, 1)
+        layout.addLayout(center_col, 0, 2, 2, 1)
+        layout.addLayout(right_col, 0, 3, 2, 1)
+        layout.setColumnStretch(2, 1)
+
+        self._set_placeholder_cover()
+        return frame
+
+    @staticmethod
+    def _make_transport_button(icon_text: str, tooltip: str, play: bool = False) -> QPushButton:
+        btn = QPushButton(icon_text)
+        btn.setToolTip(tooltip)
+        btn.setObjectName("playCircle" if play else "iconCircle")
+        btn.setFixedSize(52, 52) if play else btn.setFixedSize(40, 40)
+        return btn
+
+    def _build_brand_logo(self, size: int) -> QPixmap:
+        pix = QPixmap(size, size)
+        pix.fill(Qt.GlobalColor.transparent)
+        p = QPainter(pix)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing)
+        try:
+            bg_path = QPainterPath()
+            bg_path.addRoundedRect(0, 0, size, size, size * 0.2, size * 0.2)
+            grad = QLinearGradient(0, 0, size, size)
+            grad.setColorAt(0, QColor("#148A5A"))
+            grad.setColorAt(1, QColor("#3E9E8B"))
+            p.fillPath(bg_path, grad)
+
+            p.setPen(Qt.PenStyle.NoPen)
+            p.setBrush(QColor("#F4F7F5"))
+
+            s = float(size)
+            top = QPolygonF(
+                [
+                    QPointF(s * 0.18, s * 0.28),
+                    QPointF(s * 0.74, s * 0.28),
+                    QPointF(s * 0.80, s * 0.44),
+                    QPointF(s * 0.24, s * 0.44),
+                ]
+            )
+            diag = QPolygonF(
+                [
+                    QPointF(s * 0.18, s * 0.56),
+                    QPointF(s * 0.52, s * 0.56),
+                    QPointF(s * 0.78, s * 0.44),
+                    QPointF(s * 0.32, s * 0.86),
+                    QPointF(s * 0.18, s * 0.86),
+                ]
+            )
+            bottom = QPolygonF(
+                [
+                    QPointF(s * 0.50, s * 0.66),
+                    QPointF(s * 0.74, s * 0.66),
+                    QPointF(s * 0.80, s * 0.86),
+                    QPointF(s * 0.56, s * 0.86),
+                ]
+            )
+            p.drawPolygon(top)
+            p.drawPolygon(diag)
+            p.drawPolygon(bottom)
+        finally:
+            p.end()
+        return pix
+
+    def _apply_styles(self) -> None:
+        self.setStyleSheet(
+            """
+            * {
+                color: #E8ECEA;
+                font-family: Inter, "SF Pro Text", "Segoe UI", Arial;
+                font-size: 13px;
+            }
+            QMainWindow, QWidget {
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
+                                            stop:0 #101312, stop:1 #0B0E0D);
+            }
+            QFrame#sidebar, QFrame#centerPanel, QFrame#playerBar {
+                background: rgba(28, 34, 31, 0.78);
+                border: 1px solid rgba(255, 255, 255, 0.08);
+                border-radius: 24px;
+            }
+            QLabel#brand {
+                font-size: 28px;
+                font-weight: 700;
+                color: #FFFFFF;
+                padding: 2px 2px 10px 2px;
+            }
+            QLabel#brandLogo {
+                background: transparent;
+            }
+            QLabel#sectionTitle {
+                color: #98A29C;
+                font-size: 11px;
+                text-transform: uppercase;
+                letter-spacing: 1px;
+                padding-top: 8px;
+            }
+            QLabel#scanStatus {
+                color: #1DB954;
+                font-weight: 600;
+            }
+            QLabel#collectionInfo {
+                color: #B6C1BB;
+                font-weight: 600;
+            }
+            QPushButton {
+                background: rgba(255, 255, 255, 0.06);
+                border: 1px solid rgba(255, 255, 255, 0.10);
+                border-radius: 14px;
+                padding: 8px 12px;
+                color: #E7ECE9;
+            }
+            QPushButton:hover {
+                background: rgba(29, 185, 84, 0.18);
+                border: 1px solid rgba(29, 185, 84, 0.60);
+            }
+            QPushButton:pressed {
+                background: rgba(29, 185, 84, 0.28);
+            }
+            QPushButton#iconCircle {
+                border-radius: 20px;
+                padding: 0px;
+                font-size: 16px;
+                font-weight: 600;
+            }
+            QPushButton#playCircle {
+                border-radius: 26px;
+                padding: 0px;
+                font-size: 18px;
+                font-weight: 700;
+                background: #1DB954;
+                border: 1px solid #1DB954;
+                color: #0A0F0C;
+            }
+            QPushButton#playCircle:hover {
+                background: #1ED760;
+                border: 1px solid #1ED760;
+            }
+            QPushButton#playCircle:pressed {
+                background: #15A24A;
+                border: 1px solid #15A24A;
+            }
+            QPushButton#iconCircle:checked {
+                background: rgba(29, 185, 84, 0.32);
+                border: 1px solid rgba(29, 185, 84, 0.88);
+                color: #DDFCDF;
+            }
+            QLineEdit {
+                background: rgba(255, 255, 255, 0.06);
+                border: 1px solid rgba(255, 255, 255, 0.12);
+                border-radius: 16px;
+                padding: 10px 12px;
+                selection-background-color: #1DB954;
+            }
+            QLineEdit:focus {
+                border: 1px solid rgba(29, 185, 84, 0.9);
+            }
+            QListWidget#playlistList {
+                background: transparent;
+                border: none;
+                border-radius: 14px;
+                padding: 2px;
+            }
+            QListWidget#playlistList::item {
+                background: transparent;
+                border-radius: 12px;
+                padding: 9px;
+                margin: 2px 0px;
+                color: #C3CBC6;
+            }
+            QListWidget#playlistList::item:hover {
+                background: rgba(255, 255, 255, 0.08);
+                color: #FFFFFF;
+            }
+            QListWidget#playlistList::item:selected {
+                background: rgba(29, 185, 84, 0.28);
+                color: #FFFFFF;
+            }
+            QTableView#trackTable {
+                background: rgba(12, 16, 14, 0.72);
+                border: 1px solid rgba(255, 255, 255, 0.05);
+                border-radius: 20px;
+                padding: 6px;
+                alternate-background-color: transparent;
+                selection-background-color: rgba(29, 185, 84, 0.25);
+                selection-color: #F8FFFA;
+            }
+            QHeaderView::section {
+                background: transparent;
+                color: #97A29B;
+                border: none;
+                padding: 8px;
+                font-weight: 600;
+            }
+            QTableView#trackTable::item {
+                border: none;
+                padding: 8px;
+                margin: 2px;
+                border-radius: 14px;
+                background: transparent;
+            }
+            QTableView#trackTable::item:hover {
+                background: rgba(255, 255, 255, 0.06);
+            }
+            QLabel#coverLabel {
+                border-radius: 16px;
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
+                                            stop:0 #303C36, stop:1 #1A201D);
+                border: 1px solid rgba(255, 255, 255, 0.10);
+            }
+            QLabel#nowPlaying {
+                font-size: 14px;
+                font-weight: 600;
+                color: #F0F5F2;
+            }
+            QLabel#meta {
+                color: #98A29C;
+                font-size: 12px;
+            }
+            QSlider::groove:horizontal {
+                border: none;
+                height: 6px;
+                border-radius: 3px;
+                background: rgba(255, 255, 255, 0.18);
+            }
+            QSlider#seekSlider::sub-page:horizontal,
+            QSlider::sub-page:horizontal {
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
+                                            stop:0 #1AAE4F, stop:1 #1ED760);
+                border-radius: 3px;
+            }
+            QSlider::add-page:horizontal {
+                background: rgba(255, 255, 255, 0.18);
+                border-radius: 3px;
+            }
+            QSlider::handle:horizontal {
+                background: #FFFFFF;
+                border: 2px solid #1DB954;
+                width: 16px;
+                margin: -7px 0;
+                border-radius: 10px;
+            }
+            QSlider::handle:horizontal:hover {
+                background: #DDF9E7;
+            }
+            """
         )
-        self.shuffle_check = QCheckBox("Shuffle")
 
-        playback_row.addWidget(self.now_playing_label, 0, 0, 1, 8)
-        playback_row.addWidget(self.prev_btn, 1, 0)
-        playback_row.addWidget(self.play_btn, 1, 1)
-        playback_row.addWidget(self.stop_btn, 1, 2)
-        playback_row.addWidget(self.next_btn, 1, 3)
-        playback_row.addWidget(self.current_time_label, 1, 4)
-        playback_row.addWidget(self.seek_slider, 1, 5)
-        playback_row.addWidget(self.total_time_label, 1, 6)
-
-        playback_row.addWidget(self.volume_label, 2, 0)
-        playback_row.addWidget(self.volume_slider, 2, 1, 1, 2)
-        playback_row.addWidget(QLabel("Repeat"), 2, 3)
-        playback_row.addWidget(self.repeat_combo, 2, 4)
-        playback_row.addWidget(self.shuffle_check, 2, 5)
-
-        main_layout.addLayout(top_row)
-        main_layout.addWidget(self.views_stack, 1)
-        main_layout.addLayout(playback_row)
-
-        self.setCentralWidget(central)
+    def _apply_depth(self) -> None:
+        for widget in (self.sidebar, self.center, self.player_bar):
+            shadow = QGraphicsDropShadowEffect(self)
+            shadow.setBlurRadius(36)
+            shadow.setOffset(0, 10)
+            shadow.setColor(QColor(0, 0, 0, 120))
+            widget.setGraphicsEffect(shadow)
 
     def _connect_signals(self) -> None:
         self.add_folder_btn.clicked.connect(self._choose_folder)
         self.rescan_btn.clicked.connect(self.vm.rescan_library)
         self.search_edit.textChanged.connect(self.vm.set_search_text)
-        self.view_mode.currentIndexChanged.connect(self.views_stack.setCurrentIndex)
+        self.playlist_list.itemClicked.connect(self._on_playlist_selected)
+        self.home_btn.clicked.connect(lambda: self._set_mode("Library"))
+        self.library_btn.clicked.connect(lambda: self._set_mode("Library"))
+        self.search_btn.clicked.connect(self.search_edit.setFocus)
 
         self.track_table.doubleClicked.connect(lambda idx: self.vm.play_index(idx.row()))
-        self.track_grid.doubleClicked.connect(lambda idx: self.vm.play_index(idx.row()))
 
         self.play_btn.clicked.connect(self.vm.play_pause)
-        self.stop_btn.clicked.connect(self.vm.stop)
         self.next_btn.clicked.connect(self.vm.next)
         self.prev_btn.clicked.connect(self.vm.previous)
+        self.shuffle_btn.toggled.connect(self.vm.set_shuffle)
+        self.favourite_btn.clicked.connect(self.vm.toggle_current_track_favourite)
+        self.repeat_btn.clicked.connect(self._cycle_repeat_mode)
 
         self.volume_slider.valueChanged.connect(self.vm.set_volume)
-        self.repeat_combo.currentTextChanged.connect(self.vm.set_repeat_mode)
-        self.shuffle_check.toggled.connect(self.vm.set_shuffle)
 
         self.seek_slider.sliderPressed.connect(self._begin_seek)
         self.seek_slider.sliderReleased.connect(self._end_seek)
 
         self.vm.player.position_changed.connect(self._on_player_position)
         self.vm.player.duration_changed.connect(self._on_player_duration)
+        self.vm.player.state_changed.connect(self._on_playback_state_changed)
 
         self.vm.library_changed.connect(self._on_library_changed)
         self.vm.scan_started.connect(self._on_scan_started)
         self.vm.scan_finished.connect(self._on_scan_finished)
         self.vm.scan_failed.connect(self._on_scan_failed)
-        self.vm.now_playing_changed.connect(self.now_playing_label.setText)
+        self.vm.collection_info_changed.connect(self.collection_info_label.setText)
+        self.vm.favourite_state_changed.connect(self._on_favourite_state_changed)
+        self.vm.now_playing_changed.connect(self._on_now_playing_text)
         self.vm.position_text_changed.connect(self.current_time_label.setText)
         self.vm.duration_text_changed.connect(self.total_time_label.setText)
+        self.vm.player.track_changed.connect(self._on_track_changed)
 
     def _choose_folder(self) -> None:
         folder = QFileDialog.getExistingDirectory(self, "Choose Music Folder", str(Path.home()))
         if folder:
             self.vm.add_folder(Path(folder))
 
+    def _set_mode(self, mode: str) -> None:
+        self.vm.set_collection_mode(mode)
+        items = self.playlist_list.findItems(mode, Qt.MatchFlag.MatchExactly)
+        if items:
+            self.playlist_list.setCurrentItem(items[0])
+
+    def _on_playlist_selected(self, item: QListWidgetItem) -> None:
+        self._set_mode(item.text())
+
     def _on_library_changed(self, count: int) -> None:
-        self.count_label.setText(f"Tracks: {count}")
-        self.track_table.resizeColumnsToContents()
+        self.count_label.setText(f"{count} tracks")
 
     def _on_scan_started(self) -> None:
-        self.scan_status_label.setText("Scanning library...")
+        self.scan_status_label.setText("Scanning...")
         self.add_folder_btn.setEnabled(False)
         self.rescan_btn.setEnabled(False)
 
@@ -184,8 +568,9 @@ class MainWindow(QMainWindow):
         QMessageBox.critical(self, "Scan failed", message)
 
     def _on_player_position(self, position: int) -> None:
-        if not self._is_seeking:
-            self.seek_slider.setValue(position)
+        if self._is_seeking:
+            return
+        self._animate_progress(position)
 
     def _on_player_duration(self, duration: int) -> None:
         self.seek_slider.setRange(0, max(0, duration))
@@ -196,6 +581,69 @@ class MainWindow(QMainWindow):
     def _end_seek(self) -> None:
         self._is_seeking = False
         self.vm.seek(self.seek_slider.value())
+
+    def _on_now_playing_text(self, text: str) -> None:
+        self.now_playing_label.setText(text.replace("Now playing: ", ""))
+
+    def _on_playback_state_changed(self, state_name: str) -> None:
+        if state_name == "PlayingState":
+            self.play_btn.setText("⏸")
+            self.play_btn.setToolTip("Pause")
+        else:
+            self.play_btn.setText("▶")
+            self.play_btn.setToolTip("Play")
+
+    def _on_favourite_state_changed(self, is_fav: bool) -> None:
+        self.favourite_btn.setChecked(is_fav)
+        self.favourite_btn.setText("♥" if is_fav else "♡")
+        self.favourite_btn.setToolTip(
+            "Remove from favourites" if is_fav else "Add to favourites"
+        )
+
+    def _on_track_changed(self, track) -> None:
+        self.meta_label.setText(f"{track.album}  |  {track.genre}")
+        if track.cover_path and track.cover_path.exists():
+            pix = QPixmap(str(track.cover_path)).scaled(
+                72,
+                72,
+                Qt.AspectRatioMode.KeepAspectRatioByExpanding,
+                Qt.TransformationMode.SmoothTransformation,
+            )
+            self.cover_label.setPixmap(pix)
+            return
+        self._set_placeholder_cover()
+
+    def _set_placeholder_cover(self) -> None:
+        pix = QPixmap(72, 72)
+        pix.fill(Qt.GlobalColor.transparent)
+        self.cover_label.setPixmap(pix)
+
+    def _animate_progress(self, target_value: int) -> None:
+        self._progress_anim.stop()
+        self._progress_anim = QPropertyAnimation(self.seek_slider, b"value", self)
+        self._progress_anim.setDuration(180)
+        self._progress_anim.setStartValue(self.seek_slider.value())
+        self._progress_anim.setEndValue(target_value)
+        self._progress_anim.setEasingCurve(QEasingCurve.Type.OutCubic)
+        self._progress_anim.start()
+
+    def _cycle_repeat_mode(self) -> None:
+        self._repeat_index = (self._repeat_index + 1) % len(self._repeat_modes)
+        mode = self._repeat_modes[self._repeat_index]
+        self.vm.set_repeat_mode(mode.value)
+
+        if mode == RepeatMode.OFF:
+            self.repeat_btn.setChecked(False)
+            self.repeat_btn.setText("↻")
+            self.repeat_btn.setToolTip("Repeat: Off")
+        elif mode == RepeatMode.TRACK:
+            self.repeat_btn.setChecked(True)
+            self.repeat_btn.setText("↻1")
+            self.repeat_btn.setToolTip("Repeat: Track")
+        else:
+            self.repeat_btn.setChecked(True)
+            self.repeat_btn.setText("↻")
+            self.repeat_btn.setToolTip("Repeat: Playlist")
 
 
 def run() -> None:

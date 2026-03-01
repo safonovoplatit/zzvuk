@@ -1,4 +1,4 @@
-# ZZvuk Music Player (PySide6 + MVVM)
+# Z-Zvuk Music Player (PySide6 + MVVM)
 
 Desktop music player built in Python with an object-oriented MVVM architecture.
 

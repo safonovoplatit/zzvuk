@@ -354,7 +354,7 @@ class MainWindow(QMainWindow):
             QPushButton#navPill {
                 text-align: left;
                 font-weight: 700;
-                border-radius: 24px;
+                border-radius: 22px;
                 padding: 10px 14px;
                 background: rgba(255, 255, 255, 0.04);
                 color: #DCD2E9;
@@ -362,6 +362,7 @@ class MainWindow(QMainWindow):
             QPushButton#navPill:checked {
                 background: rgba(126, 227, 154, 0.24);
                 border: 1px solid rgba(126, 227, 154, 0.68);
+                border-radius: 22px;
                 color: #F2FFF5;
             }
             QPushButton#iconCircle {

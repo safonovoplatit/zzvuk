@@ -4,7 +4,6 @@ import random
 from enum import Enum
 
 from PySide6.QtCore import QObject, QUrl, Signal
-from PySide6.QtMultimedia import QAudioOutput, QMediaPlayer
 
 from app.models.track import Track
 
@@ -23,10 +22,15 @@ class AudioPlayerService(QObject):
 
     def __init__(self) -> None:
         super().__init__()
+        # Delay QtMultimedia import until QApplication is already created.
+        from PySide6.QtMultimedia import QAudioOutput, QMediaPlayer
+
         self._player = QMediaPlayer(self)
         self._audio_output = QAudioOutput(self)
         self._player.setAudioOutput(self._audio_output)
         self._audio_output.setVolume(0.8)
+        self._playing_state = QMediaPlayer.PlaybackState.PlayingState
+        self._end_of_media_status = QMediaPlayer.MediaStatus.EndOfMedia
 
         self._playlist: list[Track] = []
         self._current_index: int = -1
@@ -89,7 +93,7 @@ class AudioPlayerService(QObject):
         self._player.stop()
 
     def toggle_play_pause(self) -> None:
-        if self._player.playbackState() == QMediaPlayer.PlaybackState.PlayingState:
+        if self._player.playbackState() == self._playing_state:
             self.pause()
         else:
             self.play()
@@ -148,8 +152,8 @@ class AudioPlayerService(QObject):
         self._player.play()
         self.track_changed.emit(track)
 
-    def _on_media_status_changed(self, status: QMediaPlayer.MediaStatus) -> None:
-        if status != QMediaPlayer.MediaStatus.EndOfMedia:
+    def _on_media_status_changed(self, status) -> None:
+        if status != self._end_of_media_status:
             return
 
         if self._repeat_mode == RepeatMode.TRACK:

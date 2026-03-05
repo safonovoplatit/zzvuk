@@ -3,8 +3,8 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-from PySide6.QtCore import QEasingCurve, QPointF, QPropertyAnimation, QSize, Qt
-from PySide6.QtGui import QColor, QIcon, QLinearGradient, QPainter, QPainterPath, QPixmap, QPolygonF
+from PySide6.QtCore import QEasingCurve, QPropertyAnimation, QSize, Qt
+from PySide6.QtGui import QColor, QIcon, QPixmap
 from PySide6.QtWidgets import (
     QApplication,
     QAbstractItemView,
@@ -85,9 +85,25 @@ class MainWindow(QMainWindow):
 
         brand_logo = QLabel()
         brand_logo.setObjectName("brandLogo")
-        brand_logo.setFixedSize(40, 40)
-        brand_logo.setPixmap(self._build_brand_logo(40))
-        self.setWindowIcon(QIcon(self._build_brand_logo(256)))
+        brand_logo.setFixedSize(48, 48)
+        logo_path = Path(__file__).resolve().parents[2] / "photos/logo.jpg"
+        if logo_path.exists():
+            pix = QPixmap(str(logo_path))
+            if not pix.isNull():
+                brand_logo.setPixmap(
+                    pix.scaled(
+                        48,
+                        48,
+                        Qt.AspectRatioMode.KeepAspectRatioByExpanding,
+                        Qt.TransformationMode.SmoothTransformation,
+                    )
+                )
+                self.setWindowIcon(QIcon(pix))
+            else:
+                brand_logo.setText("paste_here.png")
+        else:
+            brand_logo.setText("paste_here.png")
+        brand_logo.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
         brand = QLabel("Z Zvuk (alpha)")
         brand.setObjectName("brand")
@@ -264,55 +280,6 @@ class MainWindow(QMainWindow):
         btn.setFixedSize(52, 52) if play else btn.setFixedSize(40, 40)
         return btn
 
-    def _build_brand_logo(self, size: int) -> QPixmap:
-        pix = QPixmap(size, size)
-        pix.fill(Qt.GlobalColor.transparent)
-        p = QPainter(pix)
-        p.setRenderHint(QPainter.RenderHint.Antialiasing)
-        try:
-            bg_path = QPainterPath()
-            bg_path.addRoundedRect(0, 0, size, size, size * 0.2, size * 0.2)
-            grad = QLinearGradient(0, 0, size, size)
-            grad.setColorAt(0, QColor("#148A5A"))
-            grad.setColorAt(1, QColor("#3E9E8B"))
-            p.fillPath(bg_path, grad)
-
-            p.setPen(Qt.PenStyle.NoPen)
-            p.setBrush(QColor("#F4F7F5"))
-
-            s = float(size)
-            top = QPolygonF(
-                [
-                    QPointF(s * 0.18, s * 0.28),
-                    QPointF(s * 0.74, s * 0.28),
-                    QPointF(s * 0.80, s * 0.44),
-                    QPointF(s * 0.24, s * 0.44),
-                ]
-            )
-            diag = QPolygonF(
-                [
-                    QPointF(s * 0.18, s * 0.56),
-                    QPointF(s * 0.52, s * 0.56),
-                    QPointF(s * 0.78, s * 0.44),
-                    QPointF(s * 0.32, s * 0.86),
-                    QPointF(s * 0.18, s * 0.86),
-                ]
-            )
-            bottom = QPolygonF(
-                [
-                    QPointF(s * 0.50, s * 0.66),
-                    QPointF(s * 0.74, s * 0.66),
-                    QPointF(s * 0.80, s * 0.86),
-                    QPointF(s * 0.56, s * 0.86),
-                ]
-            )
-            p.drawPolygon(top)
-            p.drawPolygon(diag)
-            p.drawPolygon(bottom)
-        finally:
-            p.end()
-        return pix
-
     def _apply_styles(self) -> None:
         self.setStyleSheet(
             """
@@ -344,7 +311,12 @@ class MainWindow(QMainWindow):
                 padding: 2px 2px 10px 2px;
             }
             QLabel#brandLogo {
-                background: transparent;
+                background: rgba(255, 255, 255, 0.05);
+                border: 1px dashed rgba(126, 227, 154, 0.5);
+                border-radius: 12px;
+                color: #CFECD8;
+                font-size: 10px;
+                padding: 2px;
             }
             QLabel#sectionTitle {
                 color: #B8AEC8;
@@ -382,7 +354,7 @@ class MainWindow(QMainWindow):
             QPushButton#navPill {
                 text-align: left;
                 font-weight: 700;
-                border-radius: 20px;
+                border-radius: 24px;
                 padding: 10px 14px;
                 background: rgba(255, 255, 255, 0.04);
                 color: #DCD2E9;

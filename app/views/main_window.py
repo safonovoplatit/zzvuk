@@ -32,7 +32,7 @@ from app.viewmodels.main_viewmodel import MainViewModel
 
 
 class MainWindow(QMainWindow):
-    def __init__(self) -> None:
+    def __init__(self):
         super().__init__()
         self.setWindowTitle("ZZvuk")
         self.resize(1360, 860)
@@ -48,7 +48,7 @@ class MainWindow(QMainWindow):
         self._apply_styles()
         self._apply_depth()
 
-    def _build_ui(self) -> None:
+    def _build_ui(self):
         root = QWidget(self)
         root_layout = QVBoxLayout(root)
         root_layout.setContentsMargins(16, 16, 16, 16)
@@ -280,7 +280,7 @@ class MainWindow(QMainWindow):
         btn.setFixedSize(52, 52) if play else btn.setFixedSize(40, 40)
         return btn
 
-    def _apply_styles(self) -> None:
+    def _apply_styles(self):
         self.setStyleSheet(
             """
             /* Material 3 expressive dark tokens */
@@ -494,7 +494,7 @@ class MainWindow(QMainWindow):
             """
         )
 
-    def _apply_depth(self) -> None:
+    def _apply_depth(self):
         for widget in (self.sidebar, self.center, self.player_bar):
             shadow = QGraphicsDropShadowEffect(self)
             shadow.setBlurRadius(36)
@@ -502,7 +502,7 @@ class MainWindow(QMainWindow):
             shadow.setColor(QColor(0, 0, 0, 120))
             widget.setGraphicsEffect(shadow)
 
-    def _connect_signals(self) -> None:
+    def _connect_signals(self):
         self.add_folder_btn.clicked.connect(self._choose_folder)
         self.rescan_btn.clicked.connect(self.vm.rescan_library)
         self.search_edit.textChanged.connect(self.vm.set_search_text)
@@ -540,12 +540,12 @@ class MainWindow(QMainWindow):
         self.vm.duration_text_changed.connect(self.total_time_label.setText)
         self.vm.player.track_changed.connect(self._on_track_changed)
 
-    def _choose_folder(self) -> None:
+    def _choose_folder(self):
         folder = QFileDialog.getExistingDirectory(self, "Choose Music Folder", str(Path.home()))
         if folder:
             self.vm.add_folder(Path(folder))
 
-    def _set_mode(self, mode: str) -> None:
+    def _set_mode(self, mode: str):
         self.vm.set_collection_mode(mode)
         self.library_btn.setChecked(mode == "Library")
         self.home_btn.setChecked(mode == "Library")
@@ -554,51 +554,51 @@ class MainWindow(QMainWindow):
         if items:
             self.playlist_list.setCurrentItem(items[0])
 
-    def _on_playlist_selected(self, item: QListWidgetItem) -> None:
+    def _on_playlist_selected(self, item: QListWidgetItem):
         self._set_mode(item.text())
 
-    def _focus_search(self) -> None:
+    def _focus_search(self):
         self.search_btn.setChecked(True)
         self.home_btn.setChecked(False)
         self.library_btn.setChecked(False)
         self.search_edit.setFocus()
 
-    def _on_library_changed(self, count: int) -> None:
+    def _on_library_changed(self, count: int):
         self.count_label.setText(f"{count} tracks")
 
-    def _on_scan_started(self) -> None:
+    def _on_scan_started(self):
         self.scan_status_label.setText("Scanning...")
         self.add_folder_btn.setEnabled(False)
         self.rescan_btn.setEnabled(False)
 
-    def _on_scan_finished(self, _count: int) -> None:
+    def _on_scan_finished(self, _count: int):
         self.scan_status_label.setText("")
         self.add_folder_btn.setEnabled(True)
         self.rescan_btn.setEnabled(True)
 
-    def _on_scan_failed(self, message: str) -> None:
+    def _on_scan_failed(self, message: str):
         self._on_scan_finished(0)
         QMessageBox.critical(self, "Scan failed", message)
 
-    def _on_player_position(self, position: int) -> None:
+    def _on_player_position(self, position: int):
         if self._is_seeking:
             return
         self._animate_progress(position)
 
-    def _on_player_duration(self, duration: int) -> None:
+    def _on_player_duration(self, duration: int):
         self.seek_slider.setRange(0, max(0, duration))
 
-    def _begin_seek(self) -> None:
+    def _begin_seek(self):
         self._is_seeking = True
 
-    def _end_seek(self) -> None:
+    def _end_seek(self):
         self._is_seeking = False
         self.vm.seek(self.seek_slider.value())
 
-    def _on_now_playing_text(self, text: str) -> None:
+    def _on_now_playing_text(self, text: str):
         self.now_playing_label.setText(text.replace("Now playing: ", ""))
 
-    def _on_playback_state_changed(self, state_name: str) -> None:
+    def _on_playback_state_changed(self, state_name: str):
         if state_name == "PlayingState":
             self.play_btn.setText("⏸")
             self.play_btn.setToolTip("Pause")
@@ -606,14 +606,14 @@ class MainWindow(QMainWindow):
             self.play_btn.setText("▶")
             self.play_btn.setToolTip("Play")
 
-    def _on_favourite_state_changed(self, is_fav: bool) -> None:
+    def _on_favourite_state_changed(self, is_fav: bool):
         self.favourite_btn.setChecked(is_fav)
         self.favourite_btn.setText("♥" if is_fav else "♡")
         self.favourite_btn.setToolTip(
             "Remove from favourites" if is_fav else "Add to favourites"
         )
 
-    def _on_track_changed(self, track) -> None:
+    def _on_track_changed(self, track):
         self.meta_label.setText(f"{track.album}  |  {track.genre}")
         if track.cover_path and track.cover_path.exists():
             pix = QPixmap(str(track.cover_path)).scaled(
@@ -626,12 +626,12 @@ class MainWindow(QMainWindow):
             return
         self._set_placeholder_cover()
 
-    def _set_placeholder_cover(self) -> None:
+    def _set_placeholder_cover(self):
         pix = QPixmap(72, 72)
         pix.fill(Qt.GlobalColor.transparent)
         self.cover_label.setPixmap(pix)
 
-    def _animate_progress(self, target_value: int) -> None:
+    def _animate_progress(self, target_value: int):
         self._progress_anim.stop()
         self._progress_anim = QPropertyAnimation(self.seek_slider, b"value", self)
         self._progress_anim.setDuration(180)
@@ -640,7 +640,7 @@ class MainWindow(QMainWindow):
         self._progress_anim.setEasingCurve(QEasingCurve.Type.OutCubic)
         self._progress_anim.start()
 
-    def _cycle_repeat_mode(self) -> None:
+    def _cycle_repeat_mode(self):
         self._repeat_index = (self._repeat_index + 1) % len(self._repeat_modes)
         mode = self._repeat_modes[self._repeat_index]
         self.vm.set_repeat_mode(mode.value)
@@ -659,7 +659,7 @@ class MainWindow(QMainWindow):
             self.repeat_btn.setToolTip("Repeat: Playlist")
 
 
-def run() -> None:
+def run():
     app = QApplication(sys.argv)
     window = MainWindow()
     window.show()

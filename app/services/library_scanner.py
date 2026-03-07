@@ -18,7 +18,7 @@ SUPPORTED_EXTENSIONS = {".mp3", ".wav", ".flac", ".aac", ".m4a"}
 
 
 class LibraryScanner:
-    def __init__(self, cover_cache_dir: Path | None = None) -> None:
+    def __init__(self, cover_cache_dir: Path | None = None):
         base = Path.home() / ".zzvuk" / "covers"
         self._cover_cache_dir = cover_cache_dir or base
         self._cover_cache_dir.mkdir(parents=True, exist_ok=True)

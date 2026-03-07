@@ -20,7 +20,7 @@ class AudioPlayerService(QObject):
     state_changed = Signal(str)
     track_changed = Signal(object)
 
-    def __init__(self) -> None:
+    def __init__(self):
         super().__init__()
         # Delay QtMultimedia import until QApplication is already created.
         from PySide6.QtMultimedia import QAudioOutput, QMediaPlayer
@@ -58,7 +58,7 @@ class AudioPlayerService(QObject):
             return self._playlist[self._current_index]
         return None
 
-    def set_playlist(self, tracks: list[Track], start_index: int = 0) -> None:
+    def set_playlist(self, tracks: list[Track], start_index: int = 0):
         self._playlist = tracks
         if not tracks:
             self._current_index = -1
@@ -67,7 +67,7 @@ class AudioPlayerService(QObject):
         self._current_index = max(0, min(start_index, len(tracks) - 1))
         self._load_current_and_play()
 
-    def play_track(self, track: Track, playlist: list[Track] | None = None) -> None:
+    def play_track(self, track: Track, playlist: list[Track] | None = None):
         if playlist is None:
             playlist = self._playlist
         if not playlist:
@@ -80,25 +80,25 @@ class AudioPlayerService(QObject):
                 self._load_current_and_play()
                 return
 
-    def play(self) -> None:
+    def play(self):
         if self._player.source().isEmpty() and self.current_track:
             self._load_current_and_play()
             return
         self._player.play()
 
-    def pause(self) -> None:
+    def pause(self):
         self._player.pause()
 
-    def stop(self) -> None:
+    def stop(self):
         self._player.stop()
 
-    def toggle_play_pause(self) -> None:
+    def toggle_play_pause(self):
         if self._player.playbackState() == self._playing_state:
             self.pause()
         else:
             self.play()
 
-    def next(self) -> None:
+    def next(self):
         if not self._playlist:
             return
         if self._shuffle_enabled and len(self._playlist) > 1:
@@ -118,7 +118,7 @@ class AudioPlayerService(QObject):
         else:
             self.stop()
 
-    def previous(self) -> None:
+    def previous(self):
         if not self._playlist:
             return
         if self._player.position() > 3000:
@@ -132,19 +132,19 @@ class AudioPlayerService(QObject):
 
         self._load_current_and_play()
 
-    def set_volume(self, value_0_100: int) -> None:
+    def set_volume(self, value_0_100: int):
         self._audio_output.setVolume(max(0.0, min(1.0, value_0_100 / 100.0)))
 
-    def seek(self, position_ms: int) -> None:
+    def seek(self, position_ms: int):
         self._player.setPosition(max(0, position_ms))
 
-    def set_repeat_mode(self, mode: RepeatMode) -> None:
+    def set_repeat_mode(self, mode: RepeatMode):
         self._repeat_mode = mode
 
-    def set_shuffle(self, enabled: bool) -> None:
+    def set_shuffle(self, enabled: bool):
         self._shuffle_enabled = enabled
 
-    def _load_current_and_play(self) -> None:
+    def _load_current_and_play(self):
         track = self.current_track
         if not track:
             return
@@ -152,7 +152,7 @@ class AudioPlayerService(QObject):
         self._player.play()
         self.track_changed.emit(track)
 
-    def _on_media_status_changed(self, status) -> None:
+    def _on_media_status_changed(self, status):
         if status != self._end_of_media_status:
             return
 

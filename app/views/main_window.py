@@ -156,7 +156,7 @@ class MainWindow(QMainWindow):
 
         top_bar = QHBoxLayout()
         self.search_edit = QLineEdit()
-        self.search_edit.setPlaceholderText("Search tracks or artists")
+        self.search_edit.setPlaceholderText("Search tracks, artists, genres")
         self.count_label = QLabel("0 tracks")
         self.scan_status_label = QLabel("")
         self.scan_status_label.setObjectName("scanStatus")
@@ -185,7 +185,8 @@ class MainWindow(QMainWindow):
         header.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
         header.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
         header.setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)
-        header.setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
+        header.setSectionResizeMode(3, QHeaderView.ResizeMode.Stretch)
+        header.setSectionResizeMode(4, QHeaderView.ResizeMode.ResizeToContents)
 
         layout.addLayout(top_bar)
         layout.addWidget(self.track_table, 1)

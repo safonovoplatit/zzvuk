@@ -40,7 +40,7 @@ class ScanWorker(QObject):
 
 
 class TrackTableModel(QAbstractTableModel):
-    COLUMNS = ["Title", "Artist", "Album", "Duration"]
+    COLUMNS = ["Title", "Artist", "Album", "Genre", "Duration"]
 
     def __init__(self):
         super().__init__()
@@ -86,6 +86,8 @@ class TrackTableModel(QAbstractTableModel):
             if col == 2:
                 return track.album
             if col == 3:
+                return track.genre
+            if col == 4:
                 return track.duration_text
         if role == Qt.ItemDataRole.DecorationRole and index.column() == 0:
             return self._cover_icon(track, 36)
@@ -303,7 +305,7 @@ class MainViewModel(QObject):
             self._filtered_tracks = [
                 t
                 for t in base_tracks
-                if needle in t.title.lower() or needle in t.artist.lower()
+                if needle in t.title.lower() or needle in t.artist.lower() or needle in t.album.lower() or needle in t.genre.lower()
             ]
 
         show_counts = self._collection_mode == "Top Hits"

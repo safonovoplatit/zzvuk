@@ -18,14 +18,14 @@ SUPPORTED_EXTENSIONS = {".mp3", ".wav", ".flac", ".aac", ".m4a"}
 
 
 class LibraryScanner:
-    def __init__(self, cover_cache_dir: Path | None = None):
+    def __init__(self, cover_cache_dir = None):
         base = Path.home() / ".zzvuk" / "covers"
         self._cover_cache_dir = cover_cache_dir or base
         self._cover_cache_dir.mkdir(parents=True, exist_ok=True)
 
-    def scan_folders(self, folders: Iterable[Path]) -> list[Track]:
-        tracks: list[Track] = []
-        seen: set[Path] = set()
+    def scan_folders(self, folders):
+        tracks = []
+        seen = set()
 
         for folder in folders:
             folder = folder.expanduser().resolve()
@@ -49,7 +49,7 @@ class LibraryScanner:
         tracks.sort(key=lambda t: (t.artist.lower(), t.album.lower(), t.title.lower()))
         return tracks
 
-    def _parse_track(self, path: Path) -> Track | None:
+    def _parse_track(self, path):
         suffix = path.suffix.lower()
         title = path.stem
         artist = "Unknown Artist"
@@ -110,14 +110,14 @@ class LibraryScanner:
         )
 
     @staticmethod
-    def _first_text(values, fallback: str) -> str:
+    def _first_text(values, fallback):
         if not values:
             return fallback
         first = values[0]
         return str(first).strip() if first else fallback
 
     @staticmethod
-    def _id3_value(audio: MP3, frame_name: str, fallback: str) -> str:
+    def _id3_value(audio, frame_name, fallback):
         if not audio.tags:
             return fallback
         frames = audio.tags.getall(frame_name)
@@ -128,9 +128,9 @@ class LibraryScanner:
             return fallback
         return str(text[0]).strip() if text[0] else fallback
 
-    def _extract_embedded_cover(self, path: Path) -> Path | None:
+    def _extract_embedded_cover(self, path):
         suffix = path.suffix.lower()
-        data: bytes | None = None
+        data = None
         ext = ".jpg"
 
         if suffix == ".mp3":
@@ -178,7 +178,7 @@ class LibraryScanner:
         return out
 
     @staticmethod
-    def _find_folder_cover(folder: Path) -> Path | None:
+    def _find_folder_cover(folder):
         for name in ("cover.jpg", "cover.jpeg", "cover.png", "folder.jpg"):
             candidate = folder / name
             if candidate.exists() and candidate.is_file():

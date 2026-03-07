@@ -25,7 +25,7 @@ class ScanWorker(QObject):
     finished = Signal(object)
     failed = Signal(str)
 
-    def __init__(self, scanner: LibraryScanner, folders: list[Path]):
+    def __init__(self, scanner, folders):
         super().__init__()
         self._scanner = scanner
         self._folders = folders
@@ -44,27 +44,27 @@ class TrackTableModel(QAbstractTableModel):
 
     def __init__(self):
         super().__init__()
-        self._tracks: list[Track] = []
-        self._active_track_path: str | None = None
-        self._listen_counts: dict[str, int] = {}
+        self._tracks = []
+        self._active_track_path = None
+        self._listen_counts = {}
         self._show_listen_counts = False
 
-    def set_tracks(self, tracks: list[Track]):
+    def set_tracks(self, tracks):
         self.beginResetModel()
         self._tracks = tracks
         self.endResetModel()
 
-    def rowCount(self, parent: QModelIndex = QModelIndex()) -> int:
+    def rowCount(self, parent = QModelIndex()):
         if parent.isValid():
             return 0
         return len(self._tracks)
 
-    def columnCount(self, parent: QModelIndex = QModelIndex()) -> int:
+    def columnCount(self, parent = QModelIndex()):
         if parent.isValid():
             return 0
         return len(self.COLUMNS)
 
-    def data(self, index: QModelIndex, role: int = Qt.ItemDataRole.DisplayRole):
+    def data(self, index, role = Qt.ItemDataRole.DisplayRole):
         if not index.isValid() or not (0 <= index.row() < len(self._tracks)):
             return None
         track = self._tracks[index.row()]
@@ -91,19 +91,19 @@ class TrackTableModel(QAbstractTableModel):
             return self._cover_icon(track, 36)
         return None
 
-    def headerData(self, section: int, orientation: Qt.Orientation, role: int = Qt.ItemDataRole.DisplayRole):
+    def headerData(self, section, orientation, role = Qt.ItemDataRole.DisplayRole):
         if role != Qt.ItemDataRole.DisplayRole:
             return None
         if orientation == Qt.Orientation.Horizontal and 0 <= section < len(self.COLUMNS):
             return self.COLUMNS[section]
         return super().headerData(section, orientation, role)
 
-    def track_at(self, row: int) -> Track | None:
+    def track_at(self, row):
         if 0 <= row < len(self._tracks):
             return self._tracks[row]
         return None
 
-    def set_active_track(self, path: Path | None):
+    def set_active_track(self, path):
         self._active_track_path = str(path) if path else None
         if self._tracks:
             top_left = self.index(0, 0)
@@ -118,7 +118,7 @@ class TrackTableModel(QAbstractTableModel):
                 ],
             )
 
-    def set_listen_counts(self, counts: dict[str, int], show_counts: bool):
+    def set_listen_counts(self, counts, show_counts: bool):
         self._listen_counts = counts
         self._show_listen_counts = show_counts
         if self._tracks:
@@ -127,7 +127,7 @@ class TrackTableModel(QAbstractTableModel):
             self.dataChanged.emit(top_left, bottom_right, [Qt.ItemDataRole.DisplayRole])
 
     @staticmethod
-    def _cover_icon(track: Track, size: int) -> QIcon:
+    def _cover_icon(track, size):
         pixmap = QPixmap(str(track.cover_path)) if track.cover_path else QPixmap()
         if pixmap.isNull():
             pixmap = QPixmap(size, size)
@@ -156,19 +156,19 @@ class TrackTableModel(QAbstractTableModel):
 class TrackGridModel(QAbstractListModel):
     def __init__(self):
         super().__init__()
-        self._tracks: list[Track] = []
+        self._tracks = []
 
-    def set_tracks(self, tracks: list[Track]):
+    def set_tracks(self, tracks):
         self.beginResetModel()
         self._tracks = tracks
         self.endResetModel()
 
-    def rowCount(self, parent: QModelIndex = QModelIndex()) -> int:
+    def rowCount(self, parent = QModelIndex()):
         if parent.isValid():
             return 0
         return len(self._tracks)
 
-    def data(self, index: QModelIndex, role: int = Qt.ItemDataRole.DisplayRole):
+    def data(self, index, role = Qt.ItemDataRole.DisplayRole):
         if not index.isValid() or not (0 <= index.row() < len(self._tracks)):
             return None
         track = self._tracks[index.row()]
@@ -195,7 +195,7 @@ class TrackGridModel(QAbstractListModel):
 
         return None
 
-    def track_at(self, row: int) -> Track | None:
+    def track_at(self, row):
         if 0 <= row < len(self._tracks):
             return self._tracks[row]
         return None
@@ -217,13 +217,13 @@ class MainViewModel(QObject):
         self._scanner = LibraryScanner()
         self._player = AudioPlayerService()
 
-        self._folders: list[Path] = []
-        self._all_tracks: list[Track] = []
-        self._filtered_tracks: list[Track] = []
+        self._folders = []
+        self._all_tracks = []
+        self._filtered_tracks = []
         self._search_text = ""
         self._collection_mode = "Library"
-        self._listen_counts: dict[str, int] = {}
-        self._favourites: set[str] = set()
+        self._listen_counts = {}
+        self._favourites = set()
 
         self.table_model = TrackTableModel()
         self.grid_model = TrackGridModel()
@@ -233,14 +233,14 @@ class MainViewModel(QObject):
         self._player.duration_changed.connect(self._on_duration_changed)
 
         self._last_duration_ms = 0
-        self._scan_thread: QThread | None = None
-        self._scan_worker: ScanWorker | None = None
+        self._scan_thread = None
+        self._scan_worker = None
 
     @property
-    def player(self) -> AudioPlayerService:
+    def player(self):
         return self._player
 
-    def add_folder(self, folder: Path):
+    def add_folder(self, folder):
         resolved = folder.expanduser().resolve()
         if resolved in self._folders:
             return
@@ -263,11 +263,11 @@ class MainViewModel(QObject):
         self._scan_worker.failed.connect(self._cleanup_scan)
         self._scan_thread.start()
 
-    def set_search_text(self, text: str):
+    def set_search_text(self, text):
         self._search_text = text.strip().lower()
         self._apply_filter()
 
-    def set_collection_mode(self, mode: str):
+    def set_collection_mode(self, mode):
         valid = {"Library", "Daily Mix", "Top Hits", "Favourites"}
         self._collection_mode = mode if mode in valid else "Library"
         self._apply_filter()
@@ -313,7 +313,7 @@ class MainViewModel(QObject):
         self.library_changed.emit(len(self._filtered_tracks))
         self.collection_info_changed.emit(self._collection_info_text())
 
-    def play_index(self, row: int):
+    def play_index(self, row):
         if not (0 <= row < len(self._filtered_tracks)):
             return
         self._player.set_playlist(self._filtered_tracks, start_index=row)
@@ -333,16 +333,16 @@ class MainViewModel(QObject):
     def previous(self):
         self._player.previous()
 
-    def set_volume(self, value: int):
+    def set_volume(self, value):
         self._player.set_volume(value)
 
-    def seek(self, position_ms: int):
+    def seek(self, position_ms):
         self._player.seek(position_ms)
 
-    def set_shuffle(self, enabled: bool):
+    def set_shuffle(self, enabled):
         self._player.set_shuffle(enabled)
 
-    def set_repeat_mode(self, text: str):
+    def set_repeat_mode(self, text):
         mapping = {
             RepeatMode.OFF.value: RepeatMode.OFF,
             RepeatMode.TRACK.value: RepeatMode.TRACK,
@@ -351,12 +351,12 @@ class MainViewModel(QObject):
         self._player.set_repeat_mode(mapping.get(text, RepeatMode.OFF))
 
     @staticmethod
-    def ms_to_time(ms: int) -> str:
+    def ms_to_time(ms):
         total_sec = max(0, int(ms // 1000))
         minutes, seconds = divmod(total_sec, 60)
         return f"{minutes:02d}:{seconds:02d}"
 
-    def _on_track_changed(self, track: Track):
+    def _on_track_changed(self, track):
         key = str(track.path)
         self._listen_counts[key] = self._listen_counts.get(key, 0) + 1
         self.favourite_state_changed.emit(key in self._favourites)
@@ -365,21 +365,21 @@ class MainViewModel(QObject):
         if self._collection_mode == "Top Hits":
             self._apply_filter()
 
-    def _on_position_changed(self, position_ms: int):
+    def _on_position_changed(self, position_ms):
         self.position_text_changed.emit(self.ms_to_time(position_ms))
 
-    def _on_duration_changed(self, duration_ms: int):
+    def _on_duration_changed(self, duration_ms):
         self._last_duration_ms = duration_ms
         self.duration_text_changed.emit(self.ms_to_time(duration_ms))
 
     @Slot(object)
-    def _on_scan_finished(self, tracks: list[Track]):
+    def _on_scan_finished(self, tracks):
         self._all_tracks = tracks
         self._apply_filter()
         self.scan_finished.emit(len(self._all_tracks))
 
     @Slot(str)
-    def _on_scan_failed(self, message: str):
+    def _on_scan_failed(self, message):
         self.scan_failed.emit(message or "Unknown scan error")
 
     @Slot()
@@ -396,14 +396,14 @@ class MainViewModel(QObject):
         if worker is not None:
             worker.deleteLater()
 
-    def _daily_mix_tracks(self) -> list[Track]:
+    def _daily_mix_tracks(self):
         if len(self._all_tracks) <= 10:
             return list(self._all_tracks)
         seed = date.today().toordinal() + len(self._all_tracks)
         rng = random.Random(seed)
         return rng.sample(self._all_tracks, 10)
 
-    def _top_hit_tracks(self) -> list[Track]:
+    def _top_hit_tracks(self):
         sorted_tracks = sorted(
             self._all_tracks,
             key=lambda t: (-self._listen_counts.get(str(t.path), 0), t.title.lower()),
@@ -414,7 +414,7 @@ class MainViewModel(QObject):
             return listened
         return sorted_tracks[: min(20, len(sorted_tracks))]
 
-    def _collection_info_text(self) -> str:
+    def _collection_info_text(self):
         if self._collection_mode == "Daily Mix":
             return "Daily Mix: up to 10 tracks"
         if self._collection_mode == "Top Hits":

@@ -32,8 +32,8 @@ class AudioPlayerService(QObject):
         self._playing_state = QMediaPlayer.PlaybackState.PlayingState
         self._end_of_media_status = QMediaPlayer.MediaStatus.EndOfMedia
 
-        self._playlist: list[Track] = []
-        self._current_index: int = -1
+        self._playlist = []
+        self._current_index = -1
         self._shuffle_enabled = False
         self._repeat_mode = RepeatMode.OFF
 
@@ -45,20 +45,20 @@ class AudioPlayerService(QObject):
         )
 
     @property
-    def playlist(self) -> list[Track]:
+    def playlist(self):
         return self._playlist
 
     @property
-    def current_index(self) -> int:
+    def current_index(self):
         return self._current_index
 
     @property
-    def current_track(self) -> Track | None:
+    def current_track(self):
         if 0 <= self._current_index < len(self._playlist):
             return self._playlist[self._current_index]
         return None
 
-    def set_playlist(self, tracks: list[Track], start_index: int = 0):
+    def set_playlist(self, tracks, start_index = 0):
         self._playlist = tracks
         if not tracks:
             self._current_index = -1
@@ -67,7 +67,7 @@ class AudioPlayerService(QObject):
         self._current_index = max(0, min(start_index, len(tracks) - 1))
         self._load_current_and_play()
 
-    def play_track(self, track: Track, playlist: list[Track] | None = None):
+    def play_track(self, track, playlist = None):
         if playlist is None:
             playlist = self._playlist
         if not playlist:
@@ -132,16 +132,16 @@ class AudioPlayerService(QObject):
 
         self._load_current_and_play()
 
-    def set_volume(self, value_0_100: int):
+    def set_volume(self, value_0_100):
         self._audio_output.setVolume(max(0.0, min(1.0, value_0_100 / 100.0)))
 
-    def seek(self, position_ms: int):
+    def seek(self, position_ms):
         self._player.setPosition(max(0, position_ms))
 
-    def set_repeat_mode(self, mode: RepeatMode):
+    def set_repeat_mode(self, mode):
         self._repeat_mode = mode
 
-    def set_shuffle(self, enabled: bool):
+    def set_shuffle(self, enabled):
         self._shuffle_enabled = enabled
 
     def _load_current_and_play(self):

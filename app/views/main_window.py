@@ -69,7 +69,7 @@ class MainWindow(QMainWindow):
         root_layout.addWidget(self.player_bar)
         self.setCentralWidget(root)
 
-    def _build_sidebar(self) -> QFrame:
+    def _build_sidebar(self):
         frame = QFrame()
         frame.setObjectName("sidebar")
         frame.setFixedWidth(260)
@@ -146,7 +146,7 @@ class MainWindow(QMainWindow):
         layout.addWidget(self.rescan_btn)
         return frame
 
-    def _build_center_panel(self) -> QFrame:
+    def _build_center_panel(self):
         frame = QFrame()
         frame.setObjectName("centerPanel")
 
@@ -191,7 +191,7 @@ class MainWindow(QMainWindow):
         layout.addWidget(self.track_table, 1)
         return frame
 
-    def _build_player_bar(self) -> QFrame:
+    def _build_player_bar(self):
         frame = QFrame()
         frame.setObjectName("playerBar")
         frame.setFixedHeight(132)
@@ -273,7 +273,7 @@ class MainWindow(QMainWindow):
         return frame
 
     @staticmethod
-    def _make_transport_button(icon_text: str, tooltip: str, play: bool = False) -> QPushButton:
+    def _make_transport_button(icon_text, tooltip, play = False):
         btn = QPushButton(icon_text)
         btn.setToolTip(tooltip)
         btn.setObjectName("playCircle" if play else "iconCircle")
@@ -545,7 +545,7 @@ class MainWindow(QMainWindow):
         if folder:
             self.vm.add_folder(Path(folder))
 
-    def _set_mode(self, mode: str):
+    def _set_mode(self, mode):
         self.vm.set_collection_mode(mode)
         self.library_btn.setChecked(mode == "Library")
         self.home_btn.setChecked(mode == "Library")
@@ -554,7 +554,7 @@ class MainWindow(QMainWindow):
         if items:
             self.playlist_list.setCurrentItem(items[0])
 
-    def _on_playlist_selected(self, item: QListWidgetItem):
+    def _on_playlist_selected(self, item):
         self._set_mode(item.text())
 
     def _focus_search(self):
@@ -563,7 +563,7 @@ class MainWindow(QMainWindow):
         self.library_btn.setChecked(False)
         self.search_edit.setFocus()
 
-    def _on_library_changed(self, count: int):
+    def _on_library_changed(self, count):
         self.count_label.setText(f"{count} tracks")
 
     def _on_scan_started(self):
@@ -571,21 +571,21 @@ class MainWindow(QMainWindow):
         self.add_folder_btn.setEnabled(False)
         self.rescan_btn.setEnabled(False)
 
-    def _on_scan_finished(self, _count: int):
+    def _on_scan_finished(self, _count):
         self.scan_status_label.setText("")
         self.add_folder_btn.setEnabled(True)
         self.rescan_btn.setEnabled(True)
 
-    def _on_scan_failed(self, message: str):
+    def _on_scan_failed(self, message):
         self._on_scan_finished(0)
         QMessageBox.critical(self, "Scan failed", message)
 
-    def _on_player_position(self, position: int):
+    def _on_player_position(self, position):
         if self._is_seeking:
             return
         self._animate_progress(position)
 
-    def _on_player_duration(self, duration: int):
+    def _on_player_duration(self, duration):
         self.seek_slider.setRange(0, max(0, duration))
 
     def _begin_seek(self):
@@ -595,10 +595,10 @@ class MainWindow(QMainWindow):
         self._is_seeking = False
         self.vm.seek(self.seek_slider.value())
 
-    def _on_now_playing_text(self, text: str):
+    def _on_now_playing_text(self, text):
         self.now_playing_label.setText(text.replace("Now playing: ", ""))
 
-    def _on_playback_state_changed(self, state_name: str):
+    def _on_playback_state_changed(self, state_name):
         if state_name == "PlayingState":
             self.play_btn.setText("⏸")
             self.play_btn.setToolTip("Pause")
@@ -606,7 +606,7 @@ class MainWindow(QMainWindow):
             self.play_btn.setText("▶")
             self.play_btn.setToolTip("Play")
 
-    def _on_favourite_state_changed(self, is_fav: bool):
+    def _on_favourite_state_changed(self, is_fav):
         self.favourite_btn.setChecked(is_fav)
         self.favourite_btn.setText("♥" if is_fav else "♡")
         self.favourite_btn.setToolTip(
@@ -631,7 +631,7 @@ class MainWindow(QMainWindow):
         pix.fill(Qt.GlobalColor.transparent)
         self.cover_label.setPixmap(pix)
 
-    def _animate_progress(self, target_value: int):
+    def _animate_progress(self, target_value):
         self._progress_anim.stop()
         self._progress_anim = QPropertyAnimation(self.seek_slider, b"value", self)
         self._progress_anim.setDuration(180)
@@ -652,7 +652,7 @@ class MainWindow(QMainWindow):
         elif mode == RepeatMode.TRACK:
             self.repeat_btn.setChecked(True)
             self.repeat_btn.setText("↻1")
-            self.repeat_btn.setToolTip("Repeat: Track")
+            self.repeat_btn.setToolTip("Repeat")
         else:
             self.repeat_btn.setChecked(True)
             self.repeat_btn.setText("↻")

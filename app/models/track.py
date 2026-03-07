@@ -15,7 +15,7 @@ class Track:
     cover_path: Path | None = None
 
     @property
-    def duration_text(self) -> str:
+    def duration_text(self):
         total = int(self.duration_seconds or 0)
         minutes, seconds = divmod(total, 60)
         return f"{minutes:02d}:{seconds:02d}"

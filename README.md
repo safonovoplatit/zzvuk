@@ -2,6 +2,12 @@
 
 Desktop music player built in Python with an object-oriented MVVM architecture.
 
+# Build (PyInstaller)
+
+```bash
+pyinstaller -F -w --add-data photos:photos -i photos/logo.jpg -n "Z-Zvuk" main.py
+```
+
 ## Features
 
 - Library scanning from local folders

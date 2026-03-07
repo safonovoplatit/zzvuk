@@ -150,7 +150,12 @@ class MainWindow(QMainWindow):
         brand_logo = QLabel()
         brand_logo.setObjectName("brandLogo")
         brand_logo.setFixedSize(48, 48)
-        logo_path = Path(__file__).resolve().parents[2] / "photos/logo.jpg"
+
+        try: # PyInstaller
+            base_path = Path(sys._MEIPASS).resolve()
+        except Exception:
+            base_path = Path(__file__).resolve().parents[2]
+        logo_path = base_path / "photos/logo.jpg"
         if logo_path.exists():
             pix = QPixmap(str(logo_path))
             if not pix.isNull():

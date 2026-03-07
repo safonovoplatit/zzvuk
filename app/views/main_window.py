@@ -3,7 +3,7 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-from PySide6.QtCore import QEasingCurve, QPropertyAnimation, QSize, Qt
+from PySide6.QtCore import QEasingCurve, QPropertyAnimation, QSize, Qt, Signal
 from PySide6.QtGui import QColor, QIcon, QPixmap
 from PySide6.QtWidgets import (
     QApplication,
@@ -22,6 +22,8 @@ from PySide6.QtWidgets import (
     QPushButton,
     QGraphicsDropShadowEffect,
     QSlider,
+    QStyle,
+    QStyleOptionSlider,
     QTableView,
     QVBoxLayout,
     QWidget,
@@ -29,6 +31,68 @@ from PySide6.QtWidgets import (
 
 from app.services.audio_player import RepeatMode
 from app.viewmodels.main_viewmodel import MainViewModel
+
+
+class SeekSlider(QSlider):
+    quickSeek = Signal(int)
+
+    def mousePressEvent(self, event):
+        if event.button() != Qt.MouseButton.LeftButton:
+            super().mousePressEvent(event)
+            return
+
+        option = QStyleOptionSlider()
+        self.initStyleOption(option)
+        handle = self.style().hitTestComplexControl(
+            QStyle.ComplexControl.CC_Slider,
+            option,
+            event.position().toPoint(),
+            self,
+        )
+        if handle == QStyle.SubControl.SC_SliderHandle:
+            super().mousePressEvent(event)
+            return
+
+        value = self._value_from_click(event.position().toPoint())
+        self.setValue(value)
+        self.quickSeek.emit(value)
+        self.sliderMoved.emit(value)
+        event.accept()
+
+    def _value_from_click(self, pos):
+        option = QStyleOptionSlider()
+        self.initStyleOption(option)
+        groove = self.style().subControlRect(
+            QStyle.ComplexControl.CC_Slider,
+            option,
+            QStyle.SubControl.SC_SliderGroove,
+            self,
+        )
+        handle = self.style().subControlRect(
+            QStyle.ComplexControl.CC_Slider,
+            option,
+            QStyle.SubControl.SC_SliderHandle,
+            self,
+        )
+
+        if self.orientation() == Qt.Orientation.Horizontal:
+            slider_length = handle.width()
+            slider_min = groove.x()
+            slider_max = groove.right() - slider_length + 1
+            pos_value = pos.x() - slider_length // 2
+        else:
+            slider_length = handle.height()
+            slider_min = groove.y()
+            slider_max = groove.bottom() - slider_length + 1
+            pos_value = pos.y() - slider_length // 2
+
+        return QStyle.sliderValueFromPosition(
+            self.minimum(),
+            self.maximum(),
+            pos_value - slider_min,
+            max(1, slider_max - slider_min),
+            option.upsideDown,
+        )
 
 
 class MainWindow(QMainWindow):
@@ -241,7 +305,7 @@ class MainWindow(QMainWindow):
         timeline.setSpacing(8)
         self.current_time_label = QLabel("00:00")
         self.total_time_label = QLabel("00:00")
-        self.seek_slider = QSlider(Qt.Orientation.Horizontal)
+        self.seek_slider = SeekSlider(Qt.Orientation.Horizontal)
         self.seek_slider.setRange(0, 0)
         self.seek_slider.setObjectName("seekSlider")
 
@@ -525,6 +589,7 @@ class MainWindow(QMainWindow):
 
         self.seek_slider.sliderPressed.connect(self._begin_seek)
         self.seek_slider.sliderReleased.connect(self._end_seek)
+        self.seek_slider.quickSeek.connect(self.vm.seek)
 
         self.vm.player.position_changed.connect(self._on_player_position)
         self.vm.player.duration_changed.connect(self._on_player_duration)

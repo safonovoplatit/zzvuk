@@ -484,22 +484,10 @@ class MainViewModel(QObject):
             self._apply_filter()
 
     def _apply_filter(self):
-        if self._current_playlist_id is not None:
-            playlist = self._playlists.playlist_by_id(self._current_playlist_id)
-            track_ids = [] if playlist is None else playlist.tracks
-            base_tracks = [
-                self._tracks_by_id[track_id]
-                for track_id in track_ids
-                if track_id in self._tracks_by_id
-            ]
-        elif self._collection_mode == "Daily Mix":
-            base_tracks = self._daily_mix_tracks()
-        elif self._collection_mode == "Top Hits":
-            base_tracks = self._top_hit_tracks()
-        elif self._collection_mode == "Favourites":
-            base_tracks = [t for t in self._all_tracks if str(t.path) in self._favourites]
-        else:
-            base_tracks = list(self._all_tracks)
+        base_tracks = self._base_tracks_for_collection(
+            self._collection_mode,
+            self._current_playlist_id,
+        )
 
         if not self._search_text:
             self._filtered_tracks = list(base_tracks)
@@ -521,7 +509,26 @@ class MainViewModel(QObject):
     def play_index(self, row):
         if not (0 <= row < len(self._filtered_tracks)):
             return
-        self._player.append_to_playlist(self._filtered_tracks[row], play_immediately=True)
+        self.enqueue_tracks([self._filtered_tracks[row]])
+
+    def enqueue_tracks(self, tracks: list[Track]):
+        ordered_tracks = [track for track in tracks if track is not None]
+        if not ordered_tracks:
+            return
+        for index, track in enumerate(ordered_tracks):
+            self._player.append_to_playlist(track, play_immediately=index == 0)
+
+    def enqueue_rows(self, rows: list[int]):
+        tracks = [
+            self._filtered_tracks[row]
+            for row in sorted(set(rows))
+            if 0 <= row < len(self._filtered_tracks)
+        ]
+        self.enqueue_tracks(tracks)
+
+    def enqueue_collection(self, mode: str, playlist_id: str | None = None):
+        tracks = self._base_tracks_for_collection(mode, playlist_id)
+        self.enqueue_tracks(tracks)
 
     def play_pause(self):
         if self._player.current_track is None and self._filtered_tracks:
@@ -592,6 +599,28 @@ class MainViewModel(QObject):
 
     def _on_queue_changed(self, tracks, current_index):
         self.queue_changed.emit(list(tracks), current_index)
+
+    def _base_tracks_for_collection(
+        self,
+        mode: str,
+        playlist_id: str | None = None,
+    ) -> list[Track]:
+        if playlist_id is not None or mode == "Playlist":
+            resolved_playlist_id = playlist_id or self._current_playlist_id
+            playlist = None if resolved_playlist_id is None else self._playlists.playlist_by_id(resolved_playlist_id)
+            track_ids = [] if playlist is None else playlist.tracks
+            return [
+                self._tracks_by_id[track_id]
+                for track_id in track_ids
+                if track_id in self._tracks_by_id
+            ]
+        if mode == "Daily Mix":
+            return self._daily_mix_tracks()
+        if mode == "Top Hits":
+            return self._top_hit_tracks()
+        if mode == "Favourites":
+            return [t for t in self._all_tracks if str(t.path) in self._favourites]
+        return list(self._all_tracks)
 
     def _on_position_changed(self, position_ms):
         self.position_text_changed.emit(self.ms_to_time(position_ms))

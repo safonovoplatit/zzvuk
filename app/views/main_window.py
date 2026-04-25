@@ -285,7 +285,7 @@ class MainWindow(QMainWindow):
         self.track_table.setObjectName("trackTable")
         self.track_table.setIconSize(QSize(36, 36))
         self.track_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
-        self.track_table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
+        self.track_table.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
         self.track_table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         self.track_table.setAlternatingRowColors(False)
         self.track_table.setShowGrid(False)
@@ -784,12 +784,13 @@ class MainWindow(QMainWindow):
         self.new_playlist_btn.clicked.connect(self._create_playlist)
         self.search_edit.textChanged.connect(self.vm.set_search_text)
         self.playlist_list.currentItemChanged.connect(self._on_playlist_selected)
+        self.playlist_list.itemDoubleClicked.connect(self._enqueue_playlist_item)
         self.playlist_list.track_dropped.connect(self._on_track_dropped_to_playlist)
         self.home_btn.clicked.connect(lambda: self._set_mode("Library"))
         self.library_btn.clicked.connect(lambda: self._set_mode("Library"))
         self.search_btn.clicked.connect(self._focus_search)
 
-        self.track_table.doubleClicked.connect(lambda idx: self.vm.play_index(idx.row()))
+        self.track_table.doubleClicked.connect(self._enqueue_selected_tracks)
         self.track_table.customContextMenuRequested.connect(self._open_track_context_menu)
         self.queue_list.itemDoubleClicked.connect(self._play_queue_item)
         self.queue_list.itemSelectionChanged.connect(self._sync_queue_actions)
@@ -888,6 +889,16 @@ class MainWindow(QMainWindow):
             self.search_btn.setChecked(False)
             return
         self._set_mode(value)
+
+    def _enqueue_playlist_item(self, item):
+        if item is None:
+            return
+        kind = item.data(PLAYLIST_KIND_ROLE)
+        value = item.data(PLAYLIST_ID_ROLE)
+        if kind == "custom":
+            self.vm.enqueue_collection("Playlist", value)
+            return
+        self.vm.enqueue_collection(value)
 
     def _focus_search(self):
         self.search_btn.setChecked(True)
@@ -1081,6 +1092,18 @@ class MainWindow(QMainWindow):
 
     def _on_track_dropped_to_playlist(self, track_id: str, playlist_id: str):
         self.vm.add_track_to_playlist(playlist_id, track_id)
+
+    def _enqueue_selected_tracks(self, index):
+        if not index.isValid():
+            return
+
+        selected_rows = sorted(
+            model_index.row()
+            for model_index in self.track_table.selectionModel().selectedRows()
+        )
+        if len(selected_rows) <= 1 or index.row() not in selected_rows:
+            selected_rows = [index.row()]
+        self.vm.enqueue_rows(selected_rows)
 
     def _open_track_context_menu(self, pos):
         index = self.track_table.indexAt(pos)

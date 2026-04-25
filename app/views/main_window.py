@@ -340,6 +340,8 @@ class MainWindow(QMainWindow):
 
         self.queue_list = QListWidget()
         self.queue_list.setObjectName("queueList")
+        self.queue_list.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
+        self.queue_list.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
 
         self.queue_remove_btn = QPushButton("Remove Selected")
         self.queue_remove_btn.setObjectName("compactButton")
@@ -794,6 +796,7 @@ class MainWindow(QMainWindow):
         self.track_table.customContextMenuRequested.connect(self._open_track_context_menu)
         self.queue_list.itemDoubleClicked.connect(self._play_queue_item)
         self.queue_list.itemSelectionChanged.connect(self._sync_queue_actions)
+        self.queue_list.customContextMenuRequested.connect(self._open_queue_context_menu)
         self.queue_remove_btn.clicked.connect(self._remove_selected_queue_item)
         self.queue_clear_btn.clicked.connect(self.vm.clear_queue)
 
@@ -1109,12 +1112,17 @@ class MainWindow(QMainWindow):
         index = self.track_table.indexAt(pos)
         if not index.isValid():
             return
-
-        track_id = self.vm.track_id_at(index.row())
-        if track_id is None:
+        selected_rows = self._selected_table_rows(index.row())
+        track_ids = self.vm.track_ids_at_rows(selected_rows)
+        if not track_ids:
             return
 
         menu = QMenu(self)
+        queue_action = menu.addAction(
+            "Add to queue" if len(track_ids) == 1 else f"Add {len(track_ids)} tracks to queue"
+        )
+        queue_action.triggered.connect(lambda _checked = False, rows = list(selected_rows): self.vm.enqueue_rows(rows))
+
         add_menu = menu.addMenu("Add to playlist")
         playlists = self.vm.custom_playlists()
         if not playlists:
@@ -1123,10 +1131,62 @@ class MainWindow(QMainWindow):
         for playlist in playlists:
             action = add_menu.addAction(playlist.name)
             action.triggered.connect(
-                lambda _checked = False, pid = playlist.id, tid = track_id: self.vm.add_track_to_playlist(pid, tid)
+                lambda _checked = False, pid = playlist.id, tids = list(track_ids): self.vm.add_tracks_to_playlist(pid, tids)
+            )
+
+        if self.vm.is_custom_playlist_mode():
+            menu.addSeparator()
+            delete_action = menu.addAction(
+                "Delete from playlist"
+                if len(track_ids) == 1
+                else f"Delete {len(track_ids)} tracks from playlist"
+            )
+            delete_action.triggered.connect(
+                lambda _checked = False, tids = list(track_ids): self.vm.remove_tracks_from_current_playlist(tids)
             )
 
         menu.exec(self.track_table.viewport().mapToGlobal(pos))
+
+    def _open_queue_context_menu(self, pos):
+        item = self.queue_list.itemAt(pos)
+        if item is None:
+            return
+
+        selected_indexes = self._selected_queue_indexes(
+            item.data(Qt.ItemDataRole.UserRole)
+        )
+        if not selected_indexes:
+            return
+
+        menu = QMenu(self)
+        add_menu = menu.addMenu("Add to playlist")
+        playlists = self.vm.custom_playlists()
+        queue_tracks = self.vm.queue_tracks()
+        track_ids = [
+            queue_tracks[index].id
+            for index in selected_indexes
+            if 0 <= index < len(queue_tracks)
+        ]
+        if not playlists:
+            empty_action = add_menu.addAction("No playlists yet")
+            empty_action.setEnabled(False)
+        for playlist in playlists:
+            action = add_menu.addAction(playlist.name)
+            action.triggered.connect(
+                lambda _checked = False, pid = playlist.id, tids = list(track_ids): self.vm.add_tracks_to_playlist(pid, tids)
+            )
+
+        menu.addSeparator()
+        delete_action = menu.addAction(
+            "Delete from queue"
+            if len(selected_indexes) == 1
+            else f"Delete {len(selected_indexes)} tracks from queue"
+        )
+        delete_action.triggered.connect(
+            lambda _checked = False, indexes = list(selected_indexes): self.vm.remove_queue_indexes(indexes)
+        )
+
+        menu.exec(self.queue_list.viewport().mapToGlobal(pos))
 
     def _update_track_table_drag_mode(self):
         if self.vm.can_reorder_current_collection():
@@ -1186,12 +1246,10 @@ class MainWindow(QMainWindow):
             self.queue_list.setCurrentRow(current_index)
 
     def _remove_selected_queue_item(self):
-        item = self.queue_list.currentItem()
-        if item is None:
+        indexes = self._selected_queue_indexes()
+        if not indexes:
             return
-        row = item.data(Qt.ItemDataRole.UserRole)
-        if row is not None:
-            self.vm.remove_queue_index(int(row))
+        self.vm.remove_queue_indexes(indexes)
 
     def _play_queue_item(self, item):
         row = item.data(Qt.ItemDataRole.UserRole)
@@ -1199,7 +1257,33 @@ class MainWindow(QMainWindow):
             self.vm.play_queue_index(int(row))
 
     def _sync_queue_actions(self):
-        self.queue_remove_btn.setEnabled(self.queue_list.currentItem() is not None)
+        self.queue_remove_btn.setEnabled(bool(self.queue_list.selectedItems()))
+
+    def _selected_table_rows(self, clicked_row: int | None = None) -> list[int]:
+        selected_rows = sorted(
+            index.row()
+            for index in self.track_table.selectionModel().selectedRows()
+        )
+        if clicked_row is None:
+            return selected_rows
+        if clicked_row in selected_rows:
+            return selected_rows
+        self.track_table.selectRow(clicked_row)
+        return [clicked_row]
+
+    def _selected_queue_indexes(self, clicked_index: int | None = None) -> list[int]:
+        selected_indexes = sorted(
+            item.data(Qt.ItemDataRole.UserRole)
+            for item in self.queue_list.selectedItems()
+            if item.data(Qt.ItemDataRole.UserRole) is not None
+        )
+        if clicked_index is None:
+            return selected_indexes
+        if clicked_index in selected_indexes:
+            return selected_indexes
+        if 0 <= clicked_index < self.queue_list.count():
+            self.queue_list.setCurrentRow(clicked_index)
+        return [clicked_index]
 
 
 def run():

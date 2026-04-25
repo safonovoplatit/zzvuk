@@ -434,6 +434,51 @@ class MainViewModel(QObject):
         self.playlist_feedback.emit("Track added to playlist.")
         return True
 
+    def add_tracks_to_playlist(self, playlist_id: str, track_ids: list[str]) -> int:
+        added_count = 0
+        for track_id in track_ids:
+            try:
+                result = self._playlists.add_track(playlist_id, track_id)
+            except ValueError:
+                self.playlist_feedback.emit("Playlist not found.")
+                return 0
+            if result == "added":
+                added_count += 1
+
+        if self._current_playlist_id == playlist_id:
+            self._apply_filter()
+        self._emit_playlists_changed()
+
+        if added_count == 0:
+            self.playlist_feedback.emit("Selected tracks are already in that playlist.")
+        elif added_count == 1:
+            self.playlist_feedback.emit("1 track added to playlist.")
+        else:
+            self.playlist_feedback.emit(f"{added_count} tracks added to playlist.")
+        return added_count
+
+    def remove_tracks_from_current_playlist(self, track_ids: list[str]) -> int:
+        if self._current_playlist_id is None:
+            return 0
+
+        removed_count = 0
+        for track_id in track_ids:
+            try:
+                if self._playlists.remove_track(self._current_playlist_id, track_id):
+                    removed_count += 1
+            except ValueError:
+                self.playlist_feedback.emit("Playlist not found.")
+                return 0
+
+        if removed_count:
+            self._apply_filter()
+            self._emit_playlists_changed()
+            if removed_count == 1:
+                self.playlist_feedback.emit("Track removed from playlist.")
+            else:
+                self.playlist_feedback.emit(f"{removed_count} tracks removed from playlist.")
+        return removed_count
+
     def reorder_current_playlist(self, source_index: int, target_index: int) -> bool:
         if self._current_playlist_id is None:
             return False
@@ -462,6 +507,13 @@ class MainViewModel(QObject):
     def track_id_at(self, row: int) -> str | None:
         track = self.table_model.track_at(row)
         return None if track is None else track.id
+
+    def track_ids_at_rows(self, rows: list[int]) -> list[str]:
+        return [
+            track.id
+            for row in sorted(set(rows))
+            if (track := self.table_model.track_at(row)) is not None
+        ]
 
     def is_custom_playlist_mode(self) -> bool:
         return self._current_playlist_id is not None
@@ -570,6 +622,10 @@ class MainViewModel(QObject):
 
     def remove_queue_index(self, index: int):
         self._player.remove_playlist_index(index)
+
+    def remove_queue_indexes(self, indexes: list[int]):
+        for index in sorted(set(indexes), reverse=True):
+            self._player.remove_playlist_index(index)
 
     def clear_queue(self):
         self._player.clear_playlist()

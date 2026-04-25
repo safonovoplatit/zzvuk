@@ -56,6 +56,15 @@ class PlaylistsService:
         self._save()
         return "added"
 
+    def remove_track(self, playlist_id: str, track_id: str) -> bool:
+        playlist = self._find_required(playlist_id)
+        before = len(playlist.tracks)
+        playlist.tracks = [item for item in playlist.tracks if item != track_id]
+        changed = len(playlist.tracks) != before
+        if changed:
+            self._save()
+        return changed
+
     def reorder_tracks(self, playlist_id: str, source_index: int, target_index: int) -> bool:
         playlist = self._find_required(playlist_id)
         track_count = len(playlist.tracks)

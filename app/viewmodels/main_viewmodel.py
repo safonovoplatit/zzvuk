@@ -328,6 +328,9 @@ class MainViewModel(QObject):
     def playlists(self):
         return self._playlists.all()
 
+    def library_folders(self) -> list[Path]:
+        return list(self._folders)
+
     def add_folder(self, folder):
         resolved = folder.expanduser().resolve()
         if resolved in self._folders:
@@ -335,6 +338,15 @@ class MainViewModel(QObject):
         self._folders.append(resolved)
         self._settings.set_library_folders(self._folders)
         self.rescan_library()
+
+    def remove_folder(self, folder) -> bool:
+        resolved = folder.expanduser().resolve()
+        if resolved not in self._folders:
+            return False
+        self._folders = [item for item in self._folders if item != resolved]
+        self._settings.set_library_folders(self._folders)
+        self.rescan_library()
+        return True
 
     def rescan_library(self):
         if self._scan_thread is not None:

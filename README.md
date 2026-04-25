@@ -12,6 +12,7 @@ pyinstaller -F -w --add-data photos:photos -i photos/logo.jpg -n "Z-Zvuk" main.p
 
 - Library scanning from local folders
 - Library folder locations persist between launches
+- Library folders can be removed from the UI
 - Supported formats: MP3, WAV, FLAC, AAC, M4A
 - Metadata display: Title, Artist, Album, Genre, Duration
 - Album covers:

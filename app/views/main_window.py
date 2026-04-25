@@ -132,6 +132,7 @@ class MainWindow(QMainWindow):
         self._sync_playlist_selection("Library", "")
         self._update_track_table_drag_mode()
         self._update_empty_playlist_state()
+        self._sync_folder_actions()
 
     def _build_ui(self):
         root = QWidget(self)
@@ -232,6 +233,7 @@ class MainWindow(QMainWindow):
         self.playlist_list.setSpacing(2)
 
         self.add_folder_btn = QPushButton("Add Folder")
+        self.remove_folder_btn = QPushButton("Remove Folder")
         self.rescan_btn = QPushButton("Rescan")
 
         layout.addWidget(brand_wrap)
@@ -242,6 +244,7 @@ class MainWindow(QMainWindow):
         layout.addWidget(nav_head)
         layout.addWidget(self.playlist_list, 1)
         layout.addWidget(self.add_folder_btn)
+        layout.addWidget(self.remove_folder_btn)
         layout.addWidget(self.rescan_btn)
         return frame
 
@@ -565,6 +568,8 @@ class MainWindow(QMainWindow):
                 selection-background-color: rgba(126, 227, 154, 0.32);
                 selection-color: #F4FFF7;
             }
+            QInputDialog QComboBox,
+            QInputDialog QAbstractSpinBox,
             QFileDialog QComboBox,
             QFileDialog QAbstractSpinBox {
                 background: rgba(255, 255, 255, 0.08);
@@ -572,6 +577,13 @@ class MainWindow(QMainWindow):
                 border-radius: 12px;
                 padding: 6px 10px;
                 color: #F4EEFB;
+            }
+            QInputDialog QAbstractItemView {
+                background: #211E27;
+                border: 1px solid rgba(255, 255, 255, 0.10);
+                color: #F4EEFB;
+                selection-background-color: rgba(126, 227, 154, 0.32);
+                selection-color: #F4FFF7;
             }
             QMenu {
                 border: 1px solid rgba(255, 255, 255, 0.10);
@@ -712,6 +724,7 @@ class MainWindow(QMainWindow):
 
     def _connect_signals(self):
         self.add_folder_btn.clicked.connect(self._choose_folder)
+        self.remove_folder_btn.clicked.connect(self._remove_folder)
         self.rescan_btn.clicked.connect(self.vm.rescan_library)
         self.new_playlist_btn.clicked.connect(self._create_playlist)
         self.search_edit.textChanged.connect(self.vm.set_search_text)
@@ -764,6 +777,37 @@ class MainWindow(QMainWindow):
             selected = dialog.selectedFiles()
             if selected:
                 self.vm.add_folder(Path(selected[0]))
+                self._sync_folder_actions()
+
+    def _remove_folder(self):
+        folders = self.vm.library_folders()
+        if not folders:
+            QMessageBox.information(self, "Remove Folder", "No library folders saved yet.")
+            return
+
+        labels = [str(folder) for folder in folders]
+        selected, accepted = QInputDialog.getItem(
+            self,
+            "Remove Library Folder",
+            "Choose a folder to remove from the library:",
+            labels,
+            0,
+            False,
+        )
+        if not accepted or not selected:
+            return
+
+        confirmed = QMessageBox.question(
+            self,
+            "Remove Folder",
+            f'Remove "{selected}" from your library?\n\nFiles on disk will stay untouched.',
+        )
+        if confirmed != QMessageBox.StandardButton.Yes:
+            return
+
+        if self.vm.remove_folder(Path(selected)):
+            self._sync_folder_actions()
+            self._show_feedback("Library folder removed.")
 
     def _set_mode(self, mode):
         self.vm.set_collection_mode(mode)
@@ -799,16 +843,21 @@ class MainWindow(QMainWindow):
     def _on_scan_started(self):
         self.scan_status_label.setText("Scanning...")
         self.add_folder_btn.setEnabled(False)
+        self.remove_folder_btn.setEnabled(False)
         self.rescan_btn.setEnabled(False)
 
     def _on_scan_finished(self, _count):
         self.scan_status_label.setText("")
         self.add_folder_btn.setEnabled(True)
         self.rescan_btn.setEnabled(True)
+        self._sync_folder_actions()
 
     def _on_scan_failed(self, message):
         self._on_scan_finished(0)
         QMessageBox.critical(self, "Scan failed", message)
+
+    def _sync_folder_actions(self):
+        self.remove_folder_btn.setEnabled(bool(self.vm.library_folders()))
 
     def _on_player_position(self, position):
         if self._is_seeking:

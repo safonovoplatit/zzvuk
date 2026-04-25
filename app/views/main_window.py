@@ -523,9 +523,72 @@ class MainWindow(QMainWindow):
                 border: 1px solid rgba(255, 255, 255, 0.11);
                 border-radius: 18px;
                 padding: 11px 14px;
+                color: #F4EEFB;
+                selection-color: #132117;
             }
             QLineEdit:focus {
                 border: 1px solid rgba(126, 227, 154, 0.9);
+            }
+            QDialog,
+            QMessageBox,
+            QInputDialog,
+            QFileDialog,
+            QMenu {
+                background: #211E27;
+                color: #F4EEFB;
+            }
+            QDialog QLabel,
+            QMessageBox QLabel,
+            QInputDialog QLabel,
+            QFileDialog QLabel {
+                color: #F4EEFB;
+            }
+            QDialog QPushButton,
+            QMessageBox QPushButton,
+            QInputDialog QPushButton,
+            QFileDialog QPushButton {
+                min-width: 88px;
+            }
+            QDialog QLineEdit,
+            QInputDialog QLineEdit,
+            QFileDialog QLineEdit {
+                background: rgba(255, 255, 255, 0.08);
+                border: 1px solid rgba(255, 255, 255, 0.14);
+            }
+            QFileDialog QListView,
+            QFileDialog QTreeView,
+            QFileDialog QTableView,
+            QFileDialog QSidebar {
+                background: rgba(255, 255, 255, 0.04);
+                border: 1px solid rgba(255, 255, 255, 0.08);
+                color: #F4EEFB;
+                selection-background-color: rgba(126, 227, 154, 0.32);
+                selection-color: #F4FFF7;
+            }
+            QFileDialog QComboBox,
+            QFileDialog QAbstractSpinBox {
+                background: rgba(255, 255, 255, 0.08);
+                border: 1px solid rgba(255, 255, 255, 0.14);
+                border-radius: 12px;
+                padding: 6px 10px;
+                color: #F4EEFB;
+            }
+            QMenu {
+                border: 1px solid rgba(255, 255, 255, 0.10);
+                border-radius: 14px;
+                padding: 8px;
+            }
+            QMenu::item {
+                padding: 8px 14px;
+                border-radius: 10px;
+                color: #F4EEFB;
+            }
+            QMenu::item:selected {
+                background: rgba(126, 227, 154, 0.24);
+                color: #F4FFF7;
+            }
+            QMenu::item:disabled {
+                color: #8E859C;
             }
             QListWidget#playlistList {
                 background: transparent;
@@ -693,9 +756,14 @@ class MainWindow(QMainWindow):
         self.vm.collection_mode_changed.connect(self._sync_playlist_selection)
 
     def _choose_folder(self):
-        folder = QFileDialog.getExistingDirectory(self, "Choose Music Folder", str(Path.home()))
-        if folder:
-            self.vm.add_folder(Path(folder))
+        dialog = QFileDialog(self, "Choose Music Folder", str(Path.home()))
+        dialog.setFileMode(QFileDialog.FileMode.Directory)
+        dialog.setOption(QFileDialog.Option.ShowDirsOnly, True)
+        dialog.setOption(QFileDialog.Option.DontUseNativeDialog, True)
+        if dialog.exec():
+            selected = dialog.selectedFiles()
+            if selected:
+                self.vm.add_folder(Path(selected[0]))
 
     def _set_mode(self, mode):
         self.vm.set_collection_mode(mode)

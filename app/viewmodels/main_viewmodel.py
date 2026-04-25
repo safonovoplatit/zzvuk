@@ -287,6 +287,7 @@ class MainViewModel(QObject):
     playlists_changed = Signal(object)
     playlist_feedback = Signal(str)
     collection_mode_changed = Signal(str, str)
+    queue_changed = Signal(object, int)
 
     def __init__(self):
         super().__init__()
@@ -309,6 +310,7 @@ class MainViewModel(QObject):
         self.grid_model = TrackGridModel()
 
         self._player.track_changed.connect(self._on_track_changed)
+        self._player.playlist_changed.connect(self._on_queue_changed)
         self._player.position_changed.connect(self._on_position_changed)
         self._player.duration_changed.connect(self._on_duration_changed)
 
@@ -519,11 +521,11 @@ class MainViewModel(QObject):
     def play_index(self, row):
         if not (0 <= row < len(self._filtered_tracks)):
             return
-        self._player.set_playlist(self._filtered_tracks, start_index=row)
+        self._player.append_to_playlist(self._filtered_tracks[row], play_immediately=True)
 
     def play_pause(self):
         if self._player.current_track is None and self._filtered_tracks:
-            self._player.set_playlist(self._filtered_tracks, start_index=0)
+            self._player.append_to_playlist(self._filtered_tracks[0], play_immediately=True)
             return
         self._player.toggle_play_pause()
 
@@ -553,6 +555,21 @@ class MainViewModel(QObject):
         }
         self._player.set_repeat_mode(mapping.get(text, RepeatMode.OFF))
 
+    def queue_tracks(self) -> list[Track]:
+        return list(self._player.playlist)
+
+    def current_queue_index(self) -> int:
+        return self._player.current_index
+
+    def remove_queue_index(self, index: int):
+        self._player.remove_playlist_index(index)
+
+    def clear_queue(self):
+        self._player.clear_playlist()
+
+    def play_queue_index(self, index: int):
+        self._player.play_playlist_index(index)
+
     @staticmethod
     def ms_to_time(ms):
         total_sec = max(0, int(ms // 1000))
@@ -560,6 +577,11 @@ class MainViewModel(QObject):
         return f"{minutes:02d}:{seconds:02d}"
 
     def _on_track_changed(self, track):
+        if track is None:
+            self.table_model.set_active_track(None)
+            self.now_playing_changed.emit("Nothing playing")
+            self.favourite_state_changed.emit(False)
+            return
         key = str(track.path)
         self._listen_counts[key] = self._listen_counts.get(key, 0) + 1
         self.favourite_state_changed.emit(key in self._favourites)
@@ -567,6 +589,9 @@ class MainViewModel(QObject):
         self.now_playing_changed.emit(f"Now playing: {track.title} - {track.artist}")
         if self._collection_mode == "Top Hits":
             self._apply_filter()
+
+    def _on_queue_changed(self, tracks, current_index):
+        self.queue_changed.emit(list(tracks), current_index)
 
     def _on_position_changed(self, position_ms):
         self.position_text_changed.emit(self.ms_to_time(position_ms))

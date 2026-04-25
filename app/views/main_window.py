@@ -133,6 +133,7 @@ class MainWindow(QMainWindow):
         self._update_track_table_drag_mode()
         self._update_empty_playlist_state()
         self._sync_folder_actions()
+        self._refresh_queue(self.vm.queue_tracks(), self.vm.current_queue_index())
 
     def _build_ui(self):
         root = QWidget(self)
@@ -145,9 +146,11 @@ class MainWindow(QMainWindow):
 
         self.sidebar = self._build_sidebar()
         self.center = self._build_center_panel()
+        self.queue_panel = self._build_queue_panel()
 
         content_row.addWidget(self.sidebar)
         content_row.addWidget(self.center, 1)
+        content_row.addWidget(self.queue_panel)
 
         self.player_bar = self._build_player_bar()
 
@@ -313,6 +316,39 @@ class MainWindow(QMainWindow):
         layout.addWidget(self.empty_playlist_label)
         return frame
 
+    def _build_queue_panel(self):
+        frame = QFrame()
+        frame.setObjectName("queuePanel")
+        frame.setFixedWidth(300)
+
+        layout = QVBoxLayout(frame)
+        layout.setContentsMargins(16, 16, 16, 16)
+        layout.setSpacing(12)
+
+        header = QHBoxLayout()
+        header.setSpacing(8)
+
+        title = QLabel("Now Playing")
+        title.setObjectName("sectionTitle")
+
+        self.queue_clear_btn = QPushButton("Clear Queue")
+        self.queue_clear_btn.setObjectName("compactButton")
+
+        header.addWidget(title)
+        header.addStretch(1)
+        header.addWidget(self.queue_clear_btn)
+
+        self.queue_list = QListWidget()
+        self.queue_list.setObjectName("queueList")
+
+        self.queue_remove_btn = QPushButton("Remove Selected")
+        self.queue_remove_btn.setObjectName("compactButton")
+
+        layout.addLayout(header)
+        layout.addWidget(self.queue_list, 1)
+        layout.addWidget(self.queue_remove_btn)
+        return frame
+
     def _build_player_bar(self):
         frame = QFrame()
         frame.setObjectName("playerBar")
@@ -421,7 +457,7 @@ class MainWindow(QMainWindow):
                                             stop:0.22 #1C1A21,
                                             stop:1 #141218);
             }
-            QFrame#sidebar, QFrame#centerPanel, QFrame#playerBar {
+            QFrame#sidebar, QFrame#centerPanel, QFrame#playerBar, QFrame#queuePanel {
                 background: rgba(35, 33, 43, 0.92);
                 border: 1px solid rgba(255, 255, 255, 0.06);
                 border-radius: 28px;
@@ -608,6 +644,25 @@ class MainWindow(QMainWindow):
                 border-radius: 18px;
                 padding: 2px;
             }
+            QListWidget#queueList {
+                background: rgba(25, 23, 31, 0.82);
+                border: 1px solid rgba(255, 255, 255, 0.05);
+                border-radius: 22px;
+                padding: 8px;
+                outline: none;
+            }
+            QListWidget#queueList::item {
+                background: transparent;
+                border: none;
+                margin: 2px 0px;
+                padding: 10px 12px;
+                border-radius: 16px;
+                color: #DCD2E9;
+            }
+            QListWidget#queueList::item:selected {
+                background: rgba(126, 227, 154, 0.24);
+                color: #F4FFF7;
+            }
             QListWidget#playlistList::item {
                 background: transparent;
                 border: none;
@@ -715,7 +770,7 @@ class MainWindow(QMainWindow):
         )
 
     def _apply_depth(self):
-        for widget in (self.sidebar, self.center, self.player_bar):
+        for widget in (self.sidebar, self.center, self.player_bar, self.queue_panel):
             shadow = QGraphicsDropShadowEffect(self)
             shadow.setBlurRadius(36)
             shadow.setOffset(0, 10)
@@ -736,6 +791,10 @@ class MainWindow(QMainWindow):
 
         self.track_table.doubleClicked.connect(lambda idx: self.vm.play_index(idx.row()))
         self.track_table.customContextMenuRequested.connect(self._open_track_context_menu)
+        self.queue_list.itemDoubleClicked.connect(self._play_queue_item)
+        self.queue_list.itemSelectionChanged.connect(self._sync_queue_actions)
+        self.queue_remove_btn.clicked.connect(self._remove_selected_queue_item)
+        self.queue_clear_btn.clicked.connect(self.vm.clear_queue)
 
         self.play_btn.clicked.connect(self.vm.play_pause)
         self.next_btn.clicked.connect(self.vm.next)
@@ -767,6 +826,7 @@ class MainWindow(QMainWindow):
         self.vm.playlists_changed.connect(self._refresh_playlist_items)
         self.vm.playlist_feedback.connect(self._show_feedback)
         self.vm.collection_mode_changed.connect(self._sync_playlist_selection)
+        self.vm.queue_changed.connect(self._refresh_queue)
 
     def _choose_folder(self):
         dialog = QFileDialog(self, "Choose Music Folder", str(Path.home()))
@@ -893,6 +953,10 @@ class MainWindow(QMainWindow):
         )
 
     def _on_track_changed(self, track):
+        if track is None:
+            self.meta_label.setText("Pick a track to start")
+            self._set_placeholder_cover()
+            return
         self.meta_label.setText(f"{track.album}  |  {track.genre}")
         if track.cover_path and track.cover_path.exists():
             pix = QPixmap(str(track.cover_path)).scaled(
@@ -1078,6 +1142,41 @@ class MainWindow(QMainWindow):
         self._feedback_anim.setEasingCurve(QEasingCurve.Type.OutCubic)
         self._feedback_anim.finished.connect(self.feedback_label.hide)
         self._feedback_anim.start()
+
+    def _refresh_queue(self, tracks, current_index):
+        self.queue_list.clear()
+        for row, track in enumerate(tracks):
+            prefix = "▶ " if row == current_index else ""
+            text = f"{prefix}{track.title}\n{track.artist} | {track.duration_text}"
+            item = QListWidgetItem(text)
+            item.setData(Qt.ItemDataRole.UserRole, row)
+            if row == current_index:
+                item.setForeground(QColor("#F4FFF7"))
+                item.setBackground(QColor("#1DB95433"))
+            self.queue_list.addItem(item)
+
+        has_tracks = bool(tracks)
+        self.queue_clear_btn.setEnabled(has_tracks)
+        self.queue_remove_btn.setEnabled(has_tracks and self.queue_list.currentItem() is not None)
+
+        if 0 <= current_index < self.queue_list.count():
+            self.queue_list.setCurrentRow(current_index)
+
+    def _remove_selected_queue_item(self):
+        item = self.queue_list.currentItem()
+        if item is None:
+            return
+        row = item.data(Qt.ItemDataRole.UserRole)
+        if row is not None:
+            self.vm.remove_queue_index(int(row))
+
+    def _play_queue_item(self, item):
+        row = item.data(Qt.ItemDataRole.UserRole)
+        if row is not None:
+            self.vm.play_queue_index(int(row))
+
+    def _sync_queue_actions(self):
+        self.queue_remove_btn.setEnabled(self.queue_list.currentItem() is not None)
 
 
 def run():

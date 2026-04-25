@@ -19,6 +19,7 @@ class AudioPlayerService(QObject):
     duration_changed = Signal(int)
     state_changed = Signal(str)
     track_changed = Signal(object)
+    playlist_changed = Signal(object, int)
 
     def __init__(self):
         super().__init__()
@@ -59,12 +60,15 @@ class AudioPlayerService(QObject):
         return None
 
     def set_playlist(self, tracks, start_index = 0):
-        self._playlist = tracks
+        self._playlist = list(tracks)
         if not tracks:
             self._current_index = -1
             self._player.stop()
+            self.track_changed.emit(None)
+            self.playlist_changed.emit(list(self._playlist), self._current_index)
             return
         self._current_index = max(0, min(start_index, len(tracks) - 1))
+        self.playlist_changed.emit(list(self._playlist), self._current_index)
         self._load_current_and_play()
 
     def play_track(self, track, playlist = None):
@@ -77,8 +81,55 @@ class AudioPlayerService(QObject):
         for i, t in enumerate(self._playlist):
             if t.path == track.path:
                 self._current_index = i
+                self.playlist_changed.emit(list(self._playlist), self._current_index)
                 self._load_current_and_play()
                 return
+
+    def append_to_playlist(self, track, play_immediately: bool = False):
+        self._playlist.append(track)
+        new_index = len(self._playlist) - 1
+        if play_immediately:
+            self._current_index = new_index
+        elif self._current_index < 0:
+            self._current_index = 0
+        self.playlist_changed.emit(list(self._playlist), self._current_index)
+        if play_immediately or self.current_track is None:
+            self._load_current_and_play()
+
+    def play_playlist_index(self, index: int):
+        if not (0 <= index < len(self._playlist)):
+            return
+        self._current_index = index
+        self.playlist_changed.emit(list(self._playlist), self._current_index)
+        self._load_current_and_play()
+
+    def remove_playlist_index(self, index: int):
+        if not (0 <= index < len(self._playlist)):
+            return
+
+        removed_current = index == self._current_index
+        del self._playlist[index]
+
+        if not self._playlist:
+            self._current_index = -1
+            self._player.stop()
+            self.track_changed.emit(None)
+            self.playlist_changed.emit([], -1)
+            return
+
+        if index < self._current_index:
+            self._current_index -= 1
+        elif removed_current:
+            if index >= len(self._playlist):
+                self._current_index = len(self._playlist) - 1
+            self.playlist_changed.emit(list(self._playlist), self._current_index)
+            self._load_current_and_play()
+            return
+
+        self.playlist_changed.emit(list(self._playlist), self._current_index)
+
+    def clear_playlist(self):
+        self.set_playlist([])
 
     def play(self):
         if self._player.source().isEmpty() and self.current_track:
@@ -148,6 +199,7 @@ class AudioPlayerService(QObject):
         track = self.current_track
         if not track:
             return
+        self.playlist_changed.emit(list(self._playlist), self._current_index)
         self._player.setSource(QUrl.fromLocalFile(str(track.path)))
         self._player.play()
         self.track_changed.emit(track)

@@ -21,6 +21,7 @@ from app.models.track import Track
 from app.services.audio_player import AudioPlayerService, RepeatMode
 from app.services.library_scanner import LibraryScanner
 from app.services.playlists_service import PlaylistsService
+from app.services.settings_service import SettingsService
 
 
 class ScanWorker(QObject):
@@ -292,8 +293,9 @@ class MainViewModel(QObject):
         self._scanner = LibraryScanner()
         self._player = AudioPlayerService()
         self._playlists = PlaylistsService()
+        self._settings = SettingsService()
 
-        self._folders = []
+        self._folders = self._settings.library_folders()
         self._all_tracks = []
         self._filtered_tracks = []
         self._tracks_by_id = {}
@@ -315,6 +317,8 @@ class MainViewModel(QObject):
         self._scan_worker = None
         self._emit_playlists_changed()
         self._sync_table_capabilities()
+        if self._folders:
+            self.rescan_library()
 
     @property
     def player(self):
@@ -329,6 +333,7 @@ class MainViewModel(QObject):
         if resolved in self._folders:
             return
         self._folders.append(resolved)
+        self._settings.set_library_folders(self._folders)
         self.rescan_library()
 
     def rescan_library(self):

@@ -11,6 +11,7 @@ pyinstaller -F -w --add-data photos:photos -i photos/logo.jpg -n "Z-Zvuk" main.p
 ## Features
 
 - Library scanning from local folders
+- Library folder locations persist between launches
 - Supported formats: MP3, WAV, FLAC, AAC, M4A
 - Metadata display: Title, Artist, Album, Genre, Duration
 - Album covers:
@@ -49,5 +50,6 @@ python3 main.py
 
 ## Notes
 
+- Library folders are stored under `~/.zzvuk/settings.json`.
 - Cover cache is stored under `~/.zzvuk/covers`.
 - WAV metadata depends on file tagging quality.

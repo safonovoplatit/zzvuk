@@ -16,9 +16,11 @@ from PySide6.QtCore import (
 )
 from PySide6.QtGui import QBrush, QColor, QIcon, QLinearGradient, QPainter, QPixmap
 
+from app.models.playlist import Playlist
 from app.models.track import Track
 from app.services.audio_player import AudioPlayerService, RepeatMode
 from app.services.library_scanner import LibraryScanner
+from app.services.playlists_service import PlaylistsService
 
 
 class ScanWorker(QObject):
@@ -41,6 +43,7 @@ class ScanWorker(QObject):
 
 class TrackTableModel(QAbstractTableModel):
     COLUMNS = ["Title", "Artist", "Album", "Genre", "Duration"]
+    MIME_TYPE = "application/x-zzvuk-track-id"
 
     def __init__(self):
         super().__init__()
@@ -48,6 +51,8 @@ class TrackTableModel(QAbstractTableModel):
         self._active_track_path = None
         self._listen_counts = {}
         self._show_listen_counts = False
+        self._reorder_enabled = False
+        self._reorder_callback = None
 
     def set_tracks(self, tracks):
         self.beginResetModel()
@@ -77,10 +82,12 @@ class TrackTableModel(QAbstractTableModel):
         if role == Qt.ItemDataRole.DisplayRole:
             col = index.column()
             if col == 0:
+                prefix = "≡  " if self._reorder_enabled else ""
                 if self._show_listen_counts:
                     listens = self._listen_counts.get(str(track.path), 0)
-                    return f"{track.title}  ({listens})" if listens else track.title
-                return track.title
+                    title = f"{track.title}  ({listens})" if listens else track.title
+                    return f"{prefix}{title}"
+                return f"{prefix}{track.title}"
             if col == 1:
                 return track.artist
             if col == 2:
@@ -127,6 +134,69 @@ class TrackTableModel(QAbstractTableModel):
             top_left = self.index(0, 0)
             bottom_right = self.index(len(self._tracks) - 1, len(self.COLUMNS) - 1)
             self.dataChanged.emit(top_left, bottom_right, [Qt.ItemDataRole.DisplayRole])
+
+    def set_reorder_enabled(self, enabled: bool, reorder_callback = None):
+        self._reorder_enabled = enabled
+        self._reorder_callback = reorder_callback if enabled else None
+        if self._tracks:
+            top_left = self.index(0, 0)
+            bottom_right = self.index(len(self._tracks) - 1, len(self.COLUMNS) - 1)
+            self.dataChanged.emit(top_left, bottom_right, [Qt.ItemDataRole.DisplayRole])
+
+    def flags(self, index):
+        base_flags = Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable
+        if not index.isValid():
+            if self._reorder_enabled:
+                return base_flags | Qt.ItemFlag.ItemIsDropEnabled
+            return base_flags
+
+        flags = base_flags | Qt.ItemFlag.ItemIsDragEnabled
+        if self._reorder_enabled:
+            flags |= Qt.ItemFlag.ItemIsDropEnabled
+        return flags
+
+    def mimeTypes(self):
+        return [self.MIME_TYPE]
+
+    def mimeData(self, indexes):
+        mime_data = super().mimeData(indexes)
+        rows = sorted({index.row() for index in indexes if index.isValid()})
+        if not rows:
+            return mime_data
+        track_ids = [self._tracks[row].id for row in rows if 0 <= row < len(self._tracks)]
+        mime_data.setData(self.MIME_TYPE, "\n".join(track_ids).encode("utf-8"))
+        return mime_data
+
+    def supportedDropActions(self):
+        return Qt.DropAction.MoveAction | Qt.DropAction.CopyAction
+
+    def dropMimeData(self, data, action, row, column, parent):
+        if not self._reorder_enabled or action == Qt.DropAction.IgnoreAction:
+            return False
+        if not data.hasFormat(self.MIME_TYPE):
+            return False
+
+        raw_ids = bytes(data.data(self.MIME_TYPE)).decode("utf-8")
+        track_ids = [value for value in raw_ids.splitlines() if value]
+        if len(track_ids) != 1:
+            return False
+
+        source_row = next(
+            (idx for idx, track in enumerate(self._tracks) if track.id == track_ids[0]),
+            -1,
+        )
+        if source_row < 0:
+            return False
+
+        if row < 0:
+            if parent.isValid():
+                row = parent.row()
+            else:
+                row = len(self._tracks)
+        target_row = row - 1 if row > source_row else row
+        if self._reorder_callback is None:
+            return False
+        return bool(self._reorder_callback(source_row, target_row))
 
     @staticmethod
     def _cover_icon(track, size):
@@ -213,17 +283,23 @@ class MainViewModel(QObject):
     scan_failed = Signal(str)
     collection_info_changed = Signal(str)
     favourite_state_changed = Signal(bool)
+    playlists_changed = Signal(object)
+    playlist_feedback = Signal(str)
+    collection_mode_changed = Signal(str, str)
 
     def __init__(self):
         super().__init__()
         self._scanner = LibraryScanner()
         self._player = AudioPlayerService()
+        self._playlists = PlaylistsService()
 
         self._folders = []
         self._all_tracks = []
         self._filtered_tracks = []
+        self._tracks_by_id = {}
         self._search_text = ""
         self._collection_mode = "Library"
+        self._current_playlist_id = None
         self._listen_counts = {}
         self._favourites = set()
 
@@ -237,10 +313,16 @@ class MainViewModel(QObject):
         self._last_duration_ms = 0
         self._scan_thread = None
         self._scan_worker = None
+        self._emit_playlists_changed()
+        self._sync_table_capabilities()
 
     @property
     def player(self):
         return self._player
+
+    @property
+    def playlists(self):
+        return self._playlists.all()
 
     def add_folder(self, folder):
         resolved = folder.expanduser().resolve()
@@ -271,8 +353,102 @@ class MainViewModel(QObject):
 
     def set_collection_mode(self, mode):
         valid = {"Library", "Daily Mix", "Top Hits", "Favourites"}
+        self._current_playlist_id = None
         self._collection_mode = mode if mode in valid else "Library"
+        self.collection_mode_changed.emit(self._collection_mode, "")
+        self._sync_table_capabilities()
         self._apply_filter()
+
+    def set_playlist_collection(self, playlist_id: str):
+        playlist = self._playlists.playlist_by_id(playlist_id)
+        if playlist is None:
+            self.set_collection_mode("Library")
+            self.playlist_feedback.emit("Playlist no longer exists.")
+            return
+        self._collection_mode = "Playlist"
+        self._current_playlist_id = playlist.id
+        self.collection_mode_changed.emit("Playlist", playlist.id)
+        self._sync_table_capabilities()
+        self._apply_filter()
+
+    def create_playlist(self, name: str) -> bool:
+        try:
+            playlist = self._playlists.create(name)
+        except ValueError as exc:
+            self.playlist_feedback.emit(str(exc))
+            return False
+
+        self._emit_playlists_changed()
+        self.set_playlist_collection(playlist.id)
+        self.playlist_feedback.emit(f"Created playlist: {playlist.name}")
+        return True
+
+    def delete_playlist(self, playlist_id: str) -> bool:
+        deleted = self._playlists.delete(playlist_id)
+        if not deleted:
+            self.playlist_feedback.emit("Playlist could not be deleted.")
+            return False
+
+        was_active = self._current_playlist_id == playlist_id
+        self._emit_playlists_changed()
+        if was_active:
+            self.set_collection_mode("Library")
+        else:
+            self._apply_filter()
+        self.playlist_feedback.emit("Playlist deleted.")
+        return True
+
+    def add_track_to_playlist(self, playlist_id: str, track_id: str) -> bool:
+        try:
+            result = self._playlists.add_track(playlist_id, track_id)
+        except ValueError:
+            self.playlist_feedback.emit("Playlist not found.")
+            return False
+
+        if result == "duplicate":
+            self.playlist_feedback.emit("Track is already in that playlist.")
+            return False
+
+        if self._current_playlist_id == playlist_id:
+            self._apply_filter()
+        self._emit_playlists_changed()
+        self.playlist_feedback.emit("Track added to playlist.")
+        return True
+
+    def reorder_current_playlist(self, source_index: int, target_index: int) -> bool:
+        if self._current_playlist_id is None:
+            return False
+        changed = self._playlists.reorder_tracks(
+            self._current_playlist_id,
+            source_index,
+            target_index,
+        )
+        if changed:
+            self._apply_filter()
+        return changed
+
+    def current_playlist_id(self) -> str | None:
+        return self._current_playlist_id
+
+    def custom_playlist_name(self, playlist_id: str) -> str | None:
+        playlist = self._playlists.playlist_by_id(playlist_id)
+        return None if playlist is None else playlist.name
+
+    def custom_playlists(self) -> list[Playlist]:
+        return self._playlists.all()
+
+    def current_collection_mode(self) -> str:
+        return self._collection_mode
+
+    def track_id_at(self, row: int) -> str | None:
+        track = self.table_model.track_at(row)
+        return None if track is None else track.id
+
+    def is_custom_playlist_mode(self) -> bool:
+        return self._current_playlist_id is not None
+
+    def can_reorder_current_collection(self) -> bool:
+        return self.is_custom_playlist_mode() and not self._search_text
 
     def toggle_current_track_favourite(self):
         track = self._player.current_track
@@ -289,7 +465,15 @@ class MainViewModel(QObject):
             self._apply_filter()
 
     def _apply_filter(self):
-        if self._collection_mode == "Daily Mix":
+        if self._current_playlist_id is not None:
+            playlist = self._playlists.playlist_by_id(self._current_playlist_id)
+            track_ids = [] if playlist is None else playlist.tracks
+            base_tracks = [
+                self._tracks_by_id[track_id]
+                for track_id in track_ids
+                if track_id in self._tracks_by_id
+            ]
+        elif self._collection_mode == "Daily Mix":
             base_tracks = self._daily_mix_tracks()
         elif self._collection_mode == "Top Hits":
             base_tracks = self._top_hit_tracks()
@@ -377,6 +561,7 @@ class MainViewModel(QObject):
     @Slot(object)
     def _on_scan_finished(self, tracks):
         self._all_tracks = tracks
+        self._tracks_by_id = {track.id: track for track in self._all_tracks}
         self._apply_filter()
         self.scan_finished.emit(len(self._all_tracks))
 
@@ -417,6 +602,15 @@ class MainViewModel(QObject):
         return sorted_tracks[: min(20, len(sorted_tracks))]
 
     def _collection_info_text(self):
+        if self._current_playlist_id is not None:
+            playlist = self._playlists.playlist_by_id(self._current_playlist_id)
+            if playlist is None:
+                return "Playlist unavailable"
+            available_count = sum(1 for track_id in playlist.tracks if track_id in self._tracks_by_id)
+            missing_count = len(playlist.tracks) - available_count
+            if missing_count > 0:
+                return f"{playlist.name}: {available_count} available, {missing_count} missing"
+            return f"{playlist.name}: {available_count} tracks"
         if self._collection_mode == "Daily Mix":
             return "Daily Mix: up to 10 tracks"
         if self._collection_mode == "Top Hits":
@@ -425,3 +619,12 @@ class MainViewModel(QObject):
         if self._collection_mode == "Favourites":
             return f"Favourites: {len(self._favourites)}"
         return "Library"
+
+    def _emit_playlists_changed(self):
+        self.playlists_changed.emit(self._playlists.all())
+
+    def _sync_table_capabilities(self):
+        self.table_model.set_reorder_enabled(
+            self.is_custom_playlist_mode(),
+            self.reorder_current_playlist,
+        )

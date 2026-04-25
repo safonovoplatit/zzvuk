@@ -3,7 +3,7 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-from PySide6.QtCore import QEasingCurve, QPropertyAnimation, QSize, Qt, Signal
+from PySide6.QtCore import QEasingCurve, QPropertyAnimation, QSize, Qt, QTimer, Signal
 from PySide6.QtGui import QColor, QIcon, QPixmap
 from PySide6.QtWidgets import (
     QApplication,
@@ -18,9 +18,12 @@ from PySide6.QtWidgets import (
     QListWidget,
     QListWidgetItem,
     QMainWindow,
+    QMenu,
     QMessageBox,
     QPushButton,
     QGraphicsDropShadowEffect,
+    QGraphicsOpacityEffect,
+    QInputDialog,
     QSlider,
     QStyle,
     QStyleOptionSlider,
@@ -31,6 +34,13 @@ from PySide6.QtWidgets import (
 
 from app.services.audio_player import RepeatMode
 from app.viewmodels.main_viewmodel import MainViewModel
+from app.viewmodels.main_viewmodel import TrackTableModel
+from app.views.playlist_widgets import (
+    PLAYLIST_ID_ROLE,
+    PLAYLIST_KIND_ROLE,
+    PlaylistListItemWidget,
+    PlaylistListWidget,
+)
 
 
 class SeekSlider(QSlider):
@@ -96,6 +106,8 @@ class SeekSlider(QSlider):
 
 
 class MainWindow(QMainWindow):
+    BUILTIN_COLLECTIONS = ["Library", "Daily Mix", "Top Hits", "Favourites"]
+
     def __init__(self):
         super().__init__()
         self.setWindowTitle("ZZvuk")
@@ -106,11 +118,20 @@ class MainWindow(QMainWindow):
         self._progress_anim = QPropertyAnimation()
         self._repeat_modes = [RepeatMode.OFF, RepeatMode.TRACK, RepeatMode.PLAYLIST]
         self._repeat_index = 0
+        self._playlist_sync_in_progress = False
+        self._feedback_timer = QTimer(self)
+        self._feedback_timer.setSingleShot(True)
+        self._feedback_timer.timeout.connect(self._fade_feedback_out)
+        self._feedback_anim = None
 
         self._build_ui()
         self._connect_signals()
         self._apply_styles()
         self._apply_depth()
+        self._refresh_playlist_items(self.vm.custom_playlists())
+        self._sync_playlist_selection("Library", "")
+        self._update_track_table_drag_mode()
+        self._update_empty_playlist_state()
 
     def _build_ui(self):
         root = QWidget(self)
@@ -191,15 +212,24 @@ class MainWindow(QMainWindow):
         self.library_btn.setCheckable(True)
         self.library_btn.setChecked(True)
 
+        nav_head = QWidget()
+        nav_head_row = QHBoxLayout(nav_head)
+        nav_head_row.setContentsMargins(0, 0, 0, 0)
+        nav_head_row.setSpacing(8)
+
         nav_title = QLabel("Playlists")
         nav_title.setObjectName("sectionTitle")
 
-        self.playlist_list = QListWidget()
+        self.new_playlist_btn = QPushButton("New Playlist")
+        self.new_playlist_btn.setObjectName("compactButton")
+
+        nav_head_row.addWidget(nav_title)
+        nav_head_row.addStretch(1)
+        nav_head_row.addWidget(self.new_playlist_btn)
+
+        self.playlist_list = PlaylistListWidget(TrackTableModel.MIME_TYPE)
         self.playlist_list.setObjectName("playlistList")
-        for name in ["Library", "Daily Mix", "Top Hits", "Favourites"]:
-            item = QListWidgetItem(name)
-            self.playlist_list.addItem(item)
-        self.playlist_list.setCurrentRow(0)
+        self.playlist_list.setSpacing(2)
 
         self.add_folder_btn = QPushButton("Add Folder")
         self.rescan_btn = QPushButton("Rescan")
@@ -209,7 +239,7 @@ class MainWindow(QMainWindow):
         layout.addWidget(self.search_btn)
         layout.addWidget(self.library_btn)
         layout.addSpacing(12)
-        layout.addWidget(nav_title)
+        layout.addWidget(nav_head)
         layout.addWidget(self.playlist_list, 1)
         layout.addWidget(self.add_folder_btn)
         layout.addWidget(self.rescan_btn)
@@ -231,9 +261,16 @@ class MainWindow(QMainWindow):
         self.scan_status_label.setObjectName("scanStatus")
         self.collection_info_label = QLabel("Library")
         self.collection_info_label.setObjectName("collectionInfo")
+        self.feedback_label = QLabel("")
+        self.feedback_label.setObjectName("feedbackLabel")
+        self.feedback_label.hide()
+        self._feedback_opacity = QGraphicsOpacityEffect(self.feedback_label)
+        self._feedback_opacity.setOpacity(0.0)
+        self.feedback_label.setGraphicsEffect(self._feedback_opacity)
 
         top_bar.addWidget(self.search_edit, 1)
         top_bar.addWidget(self.collection_info_label)
+        top_bar.addWidget(self.feedback_label)
         top_bar.addWidget(self.scan_status_label)
         top_bar.addWidget(self.count_label)
 
@@ -247,6 +284,12 @@ class MainWindow(QMainWindow):
         self.track_table.setAlternatingRowColors(False)
         self.track_table.setShowGrid(False)
         self.track_table.setMouseTracking(True)
+        self.track_table.setDragEnabled(True)
+        self.track_table.setAcceptDrops(True)
+        self.track_table.setDropIndicatorShown(True)
+        self.track_table.setDragDropOverwriteMode(False)
+        self.track_table.setDragDropMode(QAbstractItemView.DragDropMode.DragOnly)
+        self.track_table.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.track_table.verticalHeader().setVisible(False)
         self.track_table.verticalHeader().setDefaultSectionSize(48)
 
@@ -257,8 +300,14 @@ class MainWindow(QMainWindow):
         header.setSectionResizeMode(3, QHeaderView.ResizeMode.Stretch)
         header.setSectionResizeMode(4, QHeaderView.ResizeMode.ResizeToContents)
 
+        self.empty_playlist_label = QLabel("Drag tracks here or use right-click menu")
+        self.empty_playlist_label.setObjectName("emptyPlaylistState")
+        self.empty_playlist_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.empty_playlist_label.hide()
+
         layout.addLayout(top_bar)
         layout.addWidget(self.track_table, 1)
+        layout.addWidget(self.empty_playlist_label)
         return frame
 
     def _build_player_bar(self):
@@ -414,6 +463,12 @@ class MainWindow(QMainWindow):
                 padding: 9px 14px;
                 color: #F2EAFB;
             }
+            QPushButton#compactButton,
+            QPushButton#playlistDeleteButton {
+                border-radius: 14px;
+                padding: 6px 10px;
+                font-size: 12px;
+            }
             QPushButton:hover {
                 background: rgba(126, 227, 154, 0.20);
                 border: 1px solid rgba(126, 227, 154, 0.65);
@@ -480,19 +535,24 @@ class MainWindow(QMainWindow):
             }
             QListWidget#playlistList::item {
                 background: transparent;
-                border-radius: 15px;
-                padding: 10px;
+                border: none;
                 margin: 2px 0px;
-                color: #D3C8E1;
             }
-            QListWidget#playlistList::item:hover {
-                background: rgba(255, 255, 255, 0.10);
-                color: #FFFFFF;
+            QWidget#playlistRow {
+                background: transparent;
+                border: 1px solid transparent;
+                border-radius: 15px;
             }
-            QListWidget#playlistList::item:selected {
+            QWidget#playlistRow[selected="true"] {
                 background: rgba(126, 227, 154, 0.28);
-                color: #F6FFF8;
                 border: 1px solid rgba(126, 227, 154, 0.62);
+            }
+            QLabel#playlistRowName {
+                color: #D3C8E1;
+                font-weight: 600;
+            }
+            QWidget#playlistRow[selected="true"] QLabel#playlistRowName {
+                color: #F6FFF8;
             }
             QTableView#trackTable {
                 background: rgba(25, 23, 31, 0.82);
@@ -535,6 +595,21 @@ class MainWindow(QMainWindow):
                 color: #C6BAD5;
                 font-size: 12px;
             }
+            QLabel#feedbackLabel {
+                color: #DDF9E5;
+                background: rgba(126, 227, 154, 0.18);
+                border: 1px solid rgba(126, 227, 154, 0.45);
+                border-radius: 14px;
+                padding: 4px 10px;
+                font-weight: 700;
+            }
+            QLabel#emptyPlaylistState {
+                color: #B8AEC8;
+                border: 1px dashed rgba(255, 255, 255, 0.14);
+                border-radius: 18px;
+                padding: 16px;
+                background: rgba(255, 255, 255, 0.04);
+            }
             QSlider::groove:horizontal {
                 border: none;
                 height: 6px;
@@ -575,13 +650,16 @@ class MainWindow(QMainWindow):
     def _connect_signals(self):
         self.add_folder_btn.clicked.connect(self._choose_folder)
         self.rescan_btn.clicked.connect(self.vm.rescan_library)
+        self.new_playlist_btn.clicked.connect(self._create_playlist)
         self.search_edit.textChanged.connect(self.vm.set_search_text)
-        self.playlist_list.itemClicked.connect(self._on_playlist_selected)
+        self.playlist_list.currentItemChanged.connect(self._on_playlist_selected)
+        self.playlist_list.track_dropped.connect(self._on_track_dropped_to_playlist)
         self.home_btn.clicked.connect(lambda: self._set_mode("Library"))
         self.library_btn.clicked.connect(lambda: self._set_mode("Library"))
         self.search_btn.clicked.connect(self._focus_search)
 
         self.track_table.doubleClicked.connect(lambda idx: self.vm.play_index(idx.row()))
+        self.track_table.customContextMenuRequested.connect(self._open_track_context_menu)
 
         self.play_btn.clicked.connect(self.vm.play_pause)
         self.next_btn.clicked.connect(self.vm.next)
@@ -610,6 +688,9 @@ class MainWindow(QMainWindow):
         self.vm.position_text_changed.connect(self.current_time_label.setText)
         self.vm.duration_text_changed.connect(self.total_time_label.setText)
         self.vm.player.track_changed.connect(self._on_track_changed)
+        self.vm.playlists_changed.connect(self._refresh_playlist_items)
+        self.vm.playlist_feedback.connect(self._show_feedback)
+        self.vm.collection_mode_changed.connect(self._sync_playlist_selection)
 
     def _choose_folder(self):
         folder = QFileDialog.getExistingDirectory(self, "Choose Music Folder", str(Path.home()))
@@ -621,12 +702,20 @@ class MainWindow(QMainWindow):
         self.library_btn.setChecked(mode == "Library")
         self.home_btn.setChecked(mode == "Library")
         self.search_btn.setChecked(False)
-        items = self.playlist_list.findItems(mode, Qt.MatchFlag.MatchExactly)
-        if items:
-            self.playlist_list.setCurrentItem(items[0])
+        self._sync_playlist_selection(mode, "")
 
-    def _on_playlist_selected(self, item):
-        self._set_mode(item.text())
+    def _on_playlist_selected(self, item, _previous = None):
+        if self._playlist_sync_in_progress or item is None:
+            return
+        kind = item.data(PLAYLIST_KIND_ROLE)
+        value = item.data(PLAYLIST_ID_ROLE)
+        if kind == "custom":
+            self.vm.set_playlist_collection(value)
+            self.library_btn.setChecked(False)
+            self.home_btn.setChecked(False)
+            self.search_btn.setChecked(False)
+            return
+        self._set_mode(value)
 
     def _focus_search(self):
         self.search_btn.setChecked(True)
@@ -636,6 +725,8 @@ class MainWindow(QMainWindow):
 
     def _on_library_changed(self, count):
         self.count_label.setText(f"{count} tracks")
+        self._update_track_table_drag_mode()
+        self._update_empty_playlist_state()
 
     def _on_scan_started(self):
         self.scan_status_label.setText("Scanning...")
@@ -728,6 +819,148 @@ class MainWindow(QMainWindow):
             self.repeat_btn.setChecked(True)
             self.repeat_btn.setText("↻")
             self.repeat_btn.setToolTip("Repeat: Playlist")
+
+    def _refresh_playlist_items(self, playlists):
+        current_kind = "custom" if self.vm.current_playlist_id() else "builtin"
+        current_value = self.vm.current_playlist_id() or self.vm.current_collection_mode()
+
+        self._playlist_sync_in_progress = True
+        self.playlist_list.clear()
+
+        for name in self.BUILTIN_COLLECTIONS:
+            self._add_playlist_item(name=name, kind="builtin", value=name, removable=False)
+
+        for playlist in playlists:
+            self._add_playlist_item(
+                name=playlist.name,
+                kind="custom",
+                value=playlist.id,
+                removable=True,
+            )
+
+        self._playlist_sync_in_progress = False
+        self._sync_playlist_selection(
+            "Playlist" if current_kind == "custom" else current_value,
+            current_value if current_kind == "custom" else "",
+        )
+
+    def _add_playlist_item(self, name: str, kind: str, value: str, removable: bool):
+        item = QListWidgetItem()
+        item.setData(PLAYLIST_KIND_ROLE, kind)
+        item.setData(PLAYLIST_ID_ROLE, value)
+        widget = PlaylistListItemWidget(
+            name=name,
+            playlist_id=value if kind == "custom" else None,
+            removable=removable,
+        )
+        widget.delete_requested.connect(self._confirm_delete_playlist)
+        item.setSizeHint(widget.sizeHint())
+        self.playlist_list.addItem(item)
+        self.playlist_list.setItemWidget(item, widget)
+
+    def _sync_playlist_selection(self, mode: str, playlist_id: str):
+        self._playlist_sync_in_progress = True
+        for row in range(self.playlist_list.count()):
+            item = self.playlist_list.item(row)
+            widget = self.playlist_list.itemWidget(item)
+            is_match = False
+            if mode == "Playlist":
+                is_match = item.data(PLAYLIST_KIND_ROLE) == "custom" and item.data(PLAYLIST_ID_ROLE) == playlist_id
+            else:
+                is_match = item.data(PLAYLIST_KIND_ROLE) == "builtin" and item.data(PLAYLIST_ID_ROLE) == mode
+            if widget is not None:
+                widget.set_selected(is_match)
+            if is_match:
+                self.playlist_list.setCurrentItem(item)
+        self._playlist_sync_in_progress = False
+        self._update_track_table_drag_mode()
+        self._update_empty_playlist_state()
+
+    def _create_playlist(self):
+        name, accepted = QInputDialog.getText(
+            self,
+            "New Playlist",
+            "Playlist name:",
+            text="",
+        )
+        if accepted:
+            self.vm.create_playlist(name)
+
+    def _confirm_delete_playlist(self, playlist_id: str):
+        name = self.vm.custom_playlist_name(playlist_id) or "this playlist"
+        result = QMessageBox.question(
+            self,
+            "Delete Playlist",
+            f'Delete "{name}"? Tracks stay in your library.',
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if result == QMessageBox.StandardButton.Yes:
+            self.vm.delete_playlist(playlist_id)
+
+    def _on_track_dropped_to_playlist(self, track_id: str, playlist_id: str):
+        self.vm.add_track_to_playlist(playlist_id, track_id)
+
+    def _open_track_context_menu(self, pos):
+        index = self.track_table.indexAt(pos)
+        if not index.isValid():
+            return
+
+        track_id = self.vm.track_id_at(index.row())
+        if track_id is None:
+            return
+
+        menu = QMenu(self)
+        add_menu = menu.addMenu("Add to playlist")
+        playlists = self.vm.custom_playlists()
+        if not playlists:
+            empty_action = add_menu.addAction("No playlists yet")
+            empty_action.setEnabled(False)
+        for playlist in playlists:
+            action = add_menu.addAction(playlist.name)
+            action.triggered.connect(
+                lambda _checked = False, pid = playlist.id, tid = track_id: self.vm.add_track_to_playlist(pid, tid)
+            )
+
+        menu.exec(self.track_table.viewport().mapToGlobal(pos))
+
+    def _update_track_table_drag_mode(self):
+        if self.vm.can_reorder_current_collection():
+            self.track_table.setDragDropMode(QAbstractItemView.DragDropMode.InternalMove)
+            return
+        self.track_table.setDragDropMode(QAbstractItemView.DragDropMode.DragOnly)
+
+    def _update_empty_playlist_state(self):
+        is_empty_playlist = self.vm.is_custom_playlist_mode() and self.vm.table_model.rowCount() == 0
+        self.empty_playlist_label.setVisible(is_empty_playlist)
+
+    def _show_feedback(self, message: str):
+        if not message:
+            return
+        self._feedback_timer.stop()
+        if self._feedback_anim is not None:
+            self._feedback_anim.stop()
+        self.feedback_label.setText(message)
+        self.feedback_label.show()
+        self._feedback_opacity.setOpacity(0.0)
+        self._feedback_anim = QPropertyAnimation(self._feedback_opacity, b"opacity", self)
+        self._feedback_anim.setDuration(180)
+        self._feedback_anim.setStartValue(0.0)
+        self._feedback_anim.setEndValue(1.0)
+        self._feedback_anim.setEasingCurve(QEasingCurve.Type.OutCubic)
+        self._feedback_anim.start()
+        self._feedback_timer.start(2400)
+
+    def _fade_feedback_out(self):
+        if self._feedback_anim is not None:
+            self._feedback_anim.stop()
+        self._feedback_anim = QPropertyAnimation(self._feedback_opacity, b"opacity", self)
+        self._feedback_anim.setDuration(220)
+        self._feedback_anim.setStartValue(self._feedback_opacity.opacity())
+        self._feedback_anim.setEndValue(0.0)
+        self._feedback_anim.setEasingCurve(QEasingCurve.Type.OutCubic)
+        self._feedback_anim.finished.connect(self.feedback_label.hide)
+        self._feedback_anim.start()
 
 
 def run():

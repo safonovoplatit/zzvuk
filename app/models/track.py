@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 
-@dataclass(slots=True)
+@dataclass
 class Track:
     path: Path
     title: str
@@ -13,6 +13,10 @@ class Track:
     genre: str
     duration_seconds: float
     cover_path: Path | None = None
+
+    @property
+    def id(self):
+        return str(self.path)
 
     @property
     def duration_text(self):

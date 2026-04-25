@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from PySide6.QtCore import Qt, Signal
-from PySide6.QtWidgets import QHBoxLayout, QLabel, QListWidget, QPushButton, QWidget
+from PySide6.QtWidgets import QHBoxLayout, QLabel, QListWidget, QPushButton, QSizePolicy, QWidget
 
 
 PLAYLIST_KIND_ROLE = Qt.ItemDataRole.UserRole
@@ -30,6 +30,8 @@ class PlaylistListItemWidget(QWidget):
         self.delete_btn.setObjectName("playlistDeleteButton")
         self.delete_btn.setVisible(removable)
         self.delete_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.delete_btn.setFixedHeight(28)
+        self.delete_btn.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
         self.delete_btn.clicked.connect(self._emit_delete)
         layout.addWidget(self.delete_btn)
 

@@ -106,7 +106,7 @@ class SeekSlider(QSlider):
 
 
 class MainWindow(QMainWindow):
-    BUILTIN_COLLECTIONS = ["Library", "Daily Mix", "Top Hits", "Favourites"]
+    BUILTIN_COLLECTIONS = ["Library", "Daily Mix", "Top Hits", "Favourites", "Radio"]
 
     def __init__(self):
         super().__init__()
@@ -215,6 +215,9 @@ class MainWindow(QMainWindow):
         self.library_btn.setObjectName("navPill")
         self.library_btn.setCheckable(True)
         self.library_btn.setChecked(True)
+        self.radio_btn = QPushButton("Internet Radio")
+        self.radio_btn.setObjectName("navPill")
+        self.radio_btn.setCheckable(True)
 
         nav_head = QWidget()
         nav_head_row = QHBoxLayout(nav_head)
@@ -238,17 +241,24 @@ class MainWindow(QMainWindow):
         self.add_folder_btn = QPushButton("Add Folder")
         self.remove_folder_btn = QPushButton("Remove Folder")
         self.rescan_btn = QPushButton("Rescan")
+        self.add_radio_btn = QPushButton("Add Station")
+        self.import_radio_btn = QPushButton("Import M3U/PLS")
+        self.update_radio_btn = QPushButton("Update Radio")
 
         layout.addWidget(brand_wrap)
         layout.addWidget(self.home_btn)
         layout.addWidget(self.search_btn)
         layout.addWidget(self.library_btn)
+        layout.addWidget(self.radio_btn)
         layout.addSpacing(12)
         layout.addWidget(nav_head)
         layout.addWidget(self.playlist_list, 1)
         layout.addWidget(self.add_folder_btn)
         layout.addWidget(self.remove_folder_btn)
         layout.addWidget(self.rescan_btn)
+        layout.addWidget(self.add_radio_btn)
+        layout.addWidget(self.import_radio_btn)
+        layout.addWidget(self.update_radio_btn)
         return frame
 
     def _build_center_panel(self):
@@ -790,7 +800,11 @@ class MainWindow(QMainWindow):
         self.playlist_list.track_dropped.connect(self._on_track_dropped_to_playlist)
         self.home_btn.clicked.connect(lambda: self._set_mode("Library"))
         self.library_btn.clicked.connect(lambda: self._set_mode("Library"))
+        self.radio_btn.clicked.connect(lambda: self._set_mode("Radio"))
         self.search_btn.clicked.connect(self._focus_search)
+        self.add_radio_btn.clicked.connect(self._add_radio_station)
+        self.import_radio_btn.clicked.connect(self._import_radio_playlist)
+        self.update_radio_btn.clicked.connect(self._update_radio_presets)
 
         self.track_table.doubleClicked.connect(self._enqueue_selected_tracks)
         self.track_table.customContextMenuRequested.connect(self._open_track_context_menu)
@@ -877,6 +891,7 @@ class MainWindow(QMainWindow):
         self.vm.set_collection_mode(mode)
         self.library_btn.setChecked(mode == "Library")
         self.home_btn.setChecked(mode == "Library")
+        self.radio_btn.setChecked(mode == "Radio")
         self.search_btn.setChecked(False)
         self._sync_playlist_selection(mode, "")
 
@@ -889,6 +904,7 @@ class MainWindow(QMainWindow):
             self.vm.set_playlist_collection(value)
             self.library_btn.setChecked(False)
             self.home_btn.setChecked(False)
+            self.radio_btn.setChecked(False)
             self.search_btn.setChecked(False)
             return
         self._set_mode(value)
@@ -907,6 +923,7 @@ class MainWindow(QMainWindow):
         self.search_btn.setChecked(True)
         self.home_btn.setChecked(False)
         self.library_btn.setChecked(False)
+        self.radio_btn.setChecked(False)
         self.search_edit.setFocus()
 
     def _on_library_changed(self, count):
@@ -969,6 +986,10 @@ class MainWindow(QMainWindow):
     def _on_track_changed(self, track):
         if track is None:
             self.meta_label.setText("Pick a track to start")
+            self._set_placeholder_cover()
+            return
+        if track.is_stream:
+            self.meta_label.setText(f"{track.genre} stream  |  {track.stream_url}")
             self._set_placeholder_cover()
             return
         self.meta_label.setText(f"{track.album}  |  {track.genre}")
@@ -1068,8 +1089,66 @@ class MainWindow(QMainWindow):
             if is_match:
                 self.playlist_list.setCurrentItem(item)
         self._playlist_sync_in_progress = False
+        self.radio_btn.setChecked(mode == "Radio")
+        self.library_btn.setChecked(mode == "Library")
+        self.home_btn.setChecked(mode == "Library")
         self._update_track_table_drag_mode()
         self._update_empty_playlist_state()
+
+    def _add_radio_station(self):
+        name, accepted = QInputDialog.getText(
+            self,
+            "Add Radio Station",
+            "Station name:",
+            text="",
+        )
+        if not accepted or not name.strip():
+            return
+        url, accepted = QInputDialog.getText(
+            self,
+            "Add Radio Station",
+            "HTTP/HTTPS stream URL:",
+            text="",
+        )
+        if not accepted or not url.strip():
+            return
+        stream_format, accepted = QInputDialog.getItem(
+            self,
+            "Add Radio Station",
+            "Stream format:",
+            ["MP3", "AAC", "OGG"],
+            0,
+            False,
+        )
+        if accepted and self.vm.add_radio_station(name, url, stream_format):
+            self._set_mode("Radio")
+
+    def _import_radio_playlist(self):
+        paths, _selected_filter = QFileDialog.getOpenFileNames(
+            self,
+            "Import Radio Playlist",
+            str(Path.home()),
+            "Radio playlists (*.m3u *.m3u8 *.pls)",
+        )
+        if not paths:
+            return
+        imported = 0
+        for path in paths:
+            imported += self.vm.import_radio_playlist(Path(path))
+        if imported:
+            self._set_mode("Radio")
+
+    def _update_radio_presets(self):
+        url, accepted = QInputDialog.getText(
+            self,
+            "Update Radio Presets",
+            "JSON, M3U, or PLS URL:",
+            text="",
+        )
+        if not accepted or not url.strip():
+            return
+        if self.vm.update_radio_presets(url):
+            self._set_mode("Radio")
 
     def _create_playlist(self):
         name, accepted = QInputDialog.getText(
@@ -1105,7 +1184,8 @@ class MainWindow(QMainWindow):
             for model_index in self.track_table.selectionModel().selectedRows()
         )
         if len(selected_rows) <= 1 or index.row() not in selected_rows:
-            selected_rows = [index.row()]
+            self.vm.play_index(index.row())
+            return
         self.vm.enqueue_rows(selected_rows)
 
     def _open_track_context_menu(self, pos):
@@ -1125,6 +1205,7 @@ class MainWindow(QMainWindow):
 
         add_menu = menu.addMenu("Add to playlist")
         playlists = self.vm.custom_playlists()
+        add_menu.setEnabled(not self.vm.is_radio_mode())
         if not playlists:
             empty_action = add_menu.addAction("No playlists yet")
             empty_action.setEnabled(False)
@@ -1162,11 +1243,16 @@ class MainWindow(QMainWindow):
         add_menu = menu.addMenu("Add to playlist")
         playlists = self.vm.custom_playlists()
         queue_tracks = self.vm.queue_tracks()
+        contains_stream = any(
+            0 <= index < len(queue_tracks) and queue_tracks[index].is_stream
+            for index in selected_indexes
+        )
         track_ids = [
             queue_tracks[index].id
             for index in selected_indexes
             if 0 <= index < len(queue_tracks)
         ]
+        add_menu.setEnabled(not contains_stream)
         if not playlists:
             empty_action = add_menu.addAction("No playlists yet")
             empty_action.setEnabled(False)

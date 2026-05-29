@@ -25,12 +25,19 @@ pyinstaller -F -w --add-data photos:photos -i photos/logo.jpg -n "Z-Zvuk" main.p
 - Repeat modes: Off, Repeat Track, Repeat Playlist
 - Shuffle toggle
 - List and grid library views
+- Internet Radio:
+  - HTTP/HTTPS MP3, AAC, and OGG streams
+  - Built-in preset stations
+  - Manual station entry
+  - M3U/M3U8 and PLS station import
+  - Preset refresh from a JSON, M3U, or PLS URL
 
 ## Project structure (MVVM)
 
 - `app/models/track.py`: domain model (`Track`)
 - `app/services/library_scanner.py`: model/service layer for scanning and metadata extraction
 - `app/services/audio_player.py`: playback service
+- `app/services/radio_service.py`: internet radio stations, playlist imports, and preset updates
 - `app/viewmodels/main_viewmodel.py`: state + UI commands + filtering logic
 - `app/views/main_window.py`: Qt widgets and bindings to ViewModel
 - `main.py`: application entry point

@@ -21,6 +21,7 @@ from app.models.track import Track
 from app.services.audio_player import AudioPlayerService, RepeatMode
 from app.services.library_scanner import LibraryScanner
 from app.services.playlists_service import PlaylistsService
+from app.services.radio_service import RadioService
 from app.services.settings_service import SettingsService
 
 
@@ -294,6 +295,7 @@ class MainViewModel(QObject):
         self._scanner = LibraryScanner()
         self._player = AudioPlayerService()
         self._playlists = PlaylistsService()
+        self._radio = RadioService()
         self._settings = SettingsService()
 
         self._folders = self._settings.library_folders()
@@ -305,9 +307,11 @@ class MainViewModel(QObject):
         self._current_playlist_id = None
         self._listen_counts = {}
         self._favourites = set()
+        self._radio_tracks = []
 
         self.table_model = TrackTableModel()
         self.grid_model = TrackGridModel()
+        self._refresh_radio_tracks()
 
         self._player.track_changed.connect(self._on_track_changed)
         self._player.playlist_changed.connect(self._on_queue_changed)
@@ -371,7 +375,7 @@ class MainViewModel(QObject):
         self._apply_filter()
 
     def set_collection_mode(self, mode):
-        valid = {"Library", "Daily Mix", "Top Hits", "Favourites"}
+        valid = {"Library", "Daily Mix", "Top Hits", "Favourites", "Radio"}
         self._current_playlist_id = None
         self._collection_mode = mode if mode in valid else "Library"
         self.collection_mode_changed.emit(self._collection_mode, "")
@@ -501,6 +505,45 @@ class MainViewModel(QObject):
     def custom_playlists(self) -> list[Playlist]:
         return self._playlists.all()
 
+    def add_radio_station(self, name: str, url: str, stream_format: str = "MP3") -> bool:
+        if not self._radio.add_station(name, url, stream_format):
+            self.playlist_feedback.emit("Radio station could not be added.")
+            return False
+        self._refresh_radio_tracks()
+        if self._collection_mode == "Radio":
+            self._apply_filter()
+        self.playlist_feedback.emit("Radio station added.")
+        return True
+
+    def import_radio_playlist(self, path: Path) -> int:
+        try:
+            added_count = self._radio.import_file(path)
+        except Exception as exc:
+            self.playlist_feedback.emit(f"Radio import failed: {exc}")
+            return 0
+        self._refresh_radio_tracks()
+        if self._collection_mode == "Radio":
+            self._apply_filter()
+        if added_count == 1:
+            self.playlist_feedback.emit("1 radio station imported.")
+        elif added_count > 1:
+            self.playlist_feedback.emit(f"{added_count} radio stations imported.")
+        else:
+            self.playlist_feedback.emit("No radio stations imported.")
+        return added_count
+
+    def update_radio_presets(self, url: str) -> int:
+        try:
+            updated_count = self._radio.update_presets_from_url(url)
+        except Exception as exc:
+            self.playlist_feedback.emit(f"Radio update failed: {exc}")
+            return 0
+        self._refresh_radio_tracks()
+        if self._collection_mode == "Radio":
+            self._apply_filter()
+        self.playlist_feedback.emit(f"Updated {updated_count} preset stations.")
+        return updated_count
+
     def current_collection_mode(self) -> str:
         return self._collection_mode
 
@@ -517,6 +560,9 @@ class MainViewModel(QObject):
 
     def is_custom_playlist_mode(self) -> bool:
         return self._current_playlist_id is not None
+
+    def is_radio_mode(self) -> bool:
+        return self._collection_mode == "Radio"
 
     def can_reorder_current_collection(self) -> bool:
         return self.is_custom_playlist_mode() and not self._search_text
@@ -561,7 +607,7 @@ class MainViewModel(QObject):
     def play_index(self, row):
         if not (0 <= row < len(self._filtered_tracks)):
             return
-        self.enqueue_tracks([self._filtered_tracks[row]])
+        self._player.set_playlist(self._filtered_tracks, start_index=row)
 
     def enqueue_tracks(self, tracks: list[Track]):
         ordered_tracks = [track for track in tracks if track is not None]
@@ -584,7 +630,7 @@ class MainViewModel(QObject):
 
     def play_pause(self):
         if self._player.current_track is None and self._filtered_tracks:
-            self._player.append_to_playlist(self._filtered_tracks[0], play_immediately=True)
+            self._player.set_playlist(self._filtered_tracks, start_index=0)
             return
         self._player.toggle_play_pause()
 
@@ -676,6 +722,8 @@ class MainViewModel(QObject):
             return self._top_hit_tracks()
         if mode == "Favourites":
             return [t for t in self._all_tracks if str(t.path) in self._favourites]
+        if mode == "Radio":
+            return list(self._radio_tracks)
         return list(self._all_tracks)
 
     def _on_position_changed(self, position_ms):
@@ -745,6 +793,8 @@ class MainViewModel(QObject):
             return f"Top Hits total listens: {total}"
         if self._collection_mode == "Favourites":
             return f"Favourites: {len(self._favourites)}"
+        if self._collection_mode == "Radio":
+            return f"Internet Radio: {len(self._radio_tracks)} stations"
         return "Library"
 
     def _emit_playlists_changed(self):
@@ -755,3 +805,6 @@ class MainViewModel(QObject):
             self.is_custom_playlist_mode(),
             self.reorder_current_playlist,
         )
+
+    def _refresh_radio_tracks(self):
+        self._radio_tracks = [station.to_track() for station in self._radio.all()]

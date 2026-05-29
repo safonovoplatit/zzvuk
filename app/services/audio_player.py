@@ -37,10 +37,12 @@ class AudioPlayerService(QObject):
         self._current_index = -1
         self._shuffle_enabled = False
         self._repeat_mode = RepeatMode.OFF
+        self._failed_paths = set()
 
         self._player.positionChanged.connect(self.position_changed.emit)
         self._player.durationChanged.connect(self.duration_changed.emit)
         self._player.mediaStatusChanged.connect(self._on_media_status_changed)
+        self._player.errorOccurred.connect(self._on_playback_error)
         self._player.playbackStateChanged.connect(
             lambda state: self.state_changed.emit(state.name)
         )
@@ -61,6 +63,7 @@ class AudioPlayerService(QObject):
 
     def set_playlist(self, tracks, start_index = 0):
         self._playlist = list(tracks)
+        self._failed_paths.clear()
         if not tracks:
             self._current_index = -1
             self._player.stop()
@@ -77,7 +80,8 @@ class AudioPlayerService(QObject):
         if not playlist:
             return
 
-        self._playlist = playlist
+        self._playlist = list(playlist)
+        self._failed_paths.clear()
         for i, t in enumerate(self._playlist):
             if t.path == track.path:
                 self._current_index = i
@@ -86,6 +90,7 @@ class AudioPlayerService(QObject):
                 return
 
     def append_to_playlist(self, track, play_immediately: bool = False):
+        self._failed_paths.discard(str(track.path))
         self._playlist.append(track)
         new_index = len(self._playlist) - 1
         if play_immediately:
@@ -200,7 +205,10 @@ class AudioPlayerService(QObject):
         if not track:
             return
         self.playlist_changed.emit(list(self._playlist), self._current_index)
-        self._player.setSource(QUrl.fromLocalFile(str(track.path)))
+        if track.stream_url:
+            self._player.setSource(QUrl(track.stream_url))
+        else:
+            self._player.setSource(QUrl.fromLocalFile(str(track.path)))
         self._player.play()
         self.track_changed.emit(track)
 
@@ -213,3 +221,25 @@ class AudioPlayerService(QObject):
             return
 
         self.next()
+
+    def _on_playback_error(self, _error, _message=""):
+        track = self.current_track
+        if track is None:
+            return
+
+        self._failed_paths.add(str(track.path))
+        failed_index = self._current_index
+        if 0 <= failed_index < len(self._playlist):
+            del self._playlist[failed_index]
+
+        if not self._playlist:
+            self._current_index = -1
+            self._player.stop()
+            self.track_changed.emit(None)
+            self.playlist_changed.emit([], -1)
+            return
+
+        if failed_index >= len(self._playlist):
+            self._current_index = 0 if self._repeat_mode == RepeatMode.PLAYLIST else len(self._playlist) - 1
+        self.playlist_changed.emit(list(self._playlist), self._current_index)
+        self._load_current_and_play()

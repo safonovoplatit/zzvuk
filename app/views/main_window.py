@@ -24,6 +24,7 @@ from PySide6.QtWidgets import (
     QGraphicsDropShadowEffect,
     QGraphicsOpacityEffect,
     QInputDialog,
+    QScrollArea,
     QSlider,
     QStyle,
     QStyleOptionSlider,
@@ -163,7 +164,19 @@ class MainWindow(QMainWindow):
         frame.setObjectName("sidebar")
         frame.setFixedWidth(260)
 
-        layout = QVBoxLayout(frame)
+        outer_layout = QVBoxLayout(frame)
+        outer_layout.setContentsMargins(0, 0, 0, 0)
+        outer_layout.setSpacing(0)
+
+        scroll = QScrollArea()
+        scroll.setObjectName("sidebarScroll")
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.Shape.NoFrame)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+
+        content = QWidget()
+        content.setObjectName("sidebarContent")
+        layout = QVBoxLayout(content)
         layout.setContentsMargins(16, 16, 16, 16)
         layout.setSpacing(10)
 
@@ -218,6 +231,9 @@ class MainWindow(QMainWindow):
         self.radio_btn = QPushButton("Internet Radio")
         self.radio_btn.setObjectName("navPill")
         self.radio_btn.setCheckable(True)
+        self.spotify_btn = QPushButton("Spotify")
+        self.spotify_btn.setObjectName("navPill")
+        self.spotify_btn.setCheckable(True)
 
         nav_head = QWidget()
         nav_head_row = QHBoxLayout(nav_head)
@@ -244,21 +260,44 @@ class MainWindow(QMainWindow):
         self.add_radio_btn = QPushButton("Add Station")
         self.import_radio_btn = QPushButton("Import M3U/PLS")
         self.update_radio_btn = QPushButton("Update Radio")
+        self.spotify_status_label = QLabel(self.vm.spotify_status())
+        self.spotify_status_label.setObjectName("scanStatus")
+        self.spotify_setup_btn = QPushButton("Spotify Client ID")
+        self.spotify_login_btn = QPushButton("Spotify Sign In")
+        self.spotify_saved_btn = QPushButton("My Spotify Tracks")
+        self.spotify_search_btn = QPushButton("Spotify Search")
+        self.spotify_charts_btn = QPushButton("Spotify Charts")
+        self.spotify_playlists_btn = QPushButton("Spotify Playlists")
+        self.spotify_logout_btn = QPushButton("Spotify Logout")
 
         layout.addWidget(brand_wrap)
         layout.addWidget(self.home_btn)
         layout.addWidget(self.search_btn)
         layout.addWidget(self.library_btn)
         layout.addWidget(self.radio_btn)
+        layout.addWidget(self.spotify_btn)
         layout.addSpacing(12)
         layout.addWidget(nav_head)
-        layout.addWidget(self.playlist_list, 1)
+        self.playlist_list.setMaximumHeight(220)
+        layout.addWidget(self.playlist_list)
         layout.addWidget(self.add_folder_btn)
         layout.addWidget(self.remove_folder_btn)
         layout.addWidget(self.rescan_btn)
         layout.addWidget(self.add_radio_btn)
         layout.addWidget(self.import_radio_btn)
         layout.addWidget(self.update_radio_btn)
+        layout.addSpacing(8)
+        layout.addWidget(self.spotify_status_label)
+        layout.addWidget(self.spotify_setup_btn)
+        layout.addWidget(self.spotify_login_btn)
+        layout.addWidget(self.spotify_saved_btn)
+        layout.addWidget(self.spotify_search_btn)
+        layout.addWidget(self.spotify_charts_btn)
+        layout.addWidget(self.spotify_playlists_btn)
+        layout.addWidget(self.spotify_logout_btn)
+        layout.addStretch(1)
+        scroll.setWidget(content)
+        outer_layout.addWidget(scroll)
         return frame
 
     def _build_center_panel(self):
@@ -473,6 +512,32 @@ class MainWindow(QMainWindow):
                 background: rgba(35, 33, 43, 0.92);
                 border: 1px solid rgba(255, 255, 255, 0.06);
                 border-radius: 28px;
+            }
+            QScrollArea#sidebarScroll,
+            QWidget#sidebarContent {
+                background: transparent;
+                border: none;
+            }
+            QScrollBar:vertical {
+                background: transparent;
+                width: 8px;
+                margin: 14px 2px 14px 0px;
+            }
+            QScrollBar::handle:vertical {
+                background: rgba(126, 227, 154, 0.34);
+                border-radius: 4px;
+                min-height: 28px;
+            }
+            QScrollBar::handle:vertical:hover {
+                background: rgba(126, 227, 154, 0.58);
+            }
+            QScrollBar::add-line:vertical,
+            QScrollBar::sub-line:vertical {
+                height: 0px;
+            }
+            QScrollBar::add-page:vertical,
+            QScrollBar::sub-page:vertical {
+                background: transparent;
             }
             QLabel#brand {
                 font-size: 24px;
@@ -801,10 +866,18 @@ class MainWindow(QMainWindow):
         self.home_btn.clicked.connect(lambda: self._set_mode("Library"))
         self.library_btn.clicked.connect(lambda: self._set_mode("Library"))
         self.radio_btn.clicked.connect(lambda: self._set_mode("Radio"))
+        self.spotify_btn.clicked.connect(self._load_spotify_saved_tracks)
         self.search_btn.clicked.connect(self._focus_search)
         self.add_radio_btn.clicked.connect(self._add_radio_station)
         self.import_radio_btn.clicked.connect(self._import_radio_playlist)
         self.update_radio_btn.clicked.connect(self._update_radio_presets)
+        self.spotify_setup_btn.clicked.connect(self._configure_spotify)
+        self.spotify_login_btn.clicked.connect(self._authorize_spotify)
+        self.spotify_saved_btn.clicked.connect(self._load_spotify_saved_tracks)
+        self.spotify_search_btn.clicked.connect(self._search_spotify)
+        self.spotify_charts_btn.clicked.connect(self._load_spotify_charts)
+        self.spotify_playlists_btn.clicked.connect(self._choose_spotify_playlist)
+        self.spotify_logout_btn.clicked.connect(self._logout_spotify)
 
         self.track_table.doubleClicked.connect(self._enqueue_selected_tracks)
         self.track_table.customContextMenuRequested.connect(self._open_track_context_menu)
@@ -892,6 +965,7 @@ class MainWindow(QMainWindow):
         self.library_btn.setChecked(mode == "Library")
         self.home_btn.setChecked(mode == "Library")
         self.radio_btn.setChecked(mode == "Radio")
+        self.spotify_btn.setChecked(mode.startswith("Spotify"))
         self.search_btn.setChecked(False)
         self._sync_playlist_selection(mode, "")
 
@@ -905,6 +979,7 @@ class MainWindow(QMainWindow):
             self.library_btn.setChecked(False)
             self.home_btn.setChecked(False)
             self.radio_btn.setChecked(False)
+            self.spotify_btn.setChecked(False)
             self.search_btn.setChecked(False)
             return
         self._set_mode(value)
@@ -924,6 +999,7 @@ class MainWindow(QMainWindow):
         self.home_btn.setChecked(False)
         self.library_btn.setChecked(False)
         self.radio_btn.setChecked(False)
+        self.spotify_btn.setChecked(False)
         self.search_edit.setFocus()
 
     def _on_library_changed(self, count):
@@ -989,7 +1065,14 @@ class MainWindow(QMainWindow):
             self._set_placeholder_cover()
             return
         if track.is_stream:
-            self.meta_label.setText(f"{track.genre} stream  |  {track.stream_url}")
+            if track.is_spotify:
+                self.meta_label.setText(f"{track.album}  |  Spotify preview")
+            else:
+                self.meta_label.setText(f"{track.genre} stream  |  {track.stream_url}")
+            self._set_placeholder_cover()
+            return
+        if track.is_spotify:
+            self.meta_label.setText(f"{track.album}  |  Open in Spotify for full playback")
             self._set_placeholder_cover()
             return
         self.meta_label.setText(f"{track.album}  |  {track.genre}")
@@ -1092,8 +1175,81 @@ class MainWindow(QMainWindow):
         self.radio_btn.setChecked(mode == "Radio")
         self.library_btn.setChecked(mode == "Library")
         self.home_btn.setChecked(mode == "Library")
+        self.spotify_btn.setChecked(mode.startswith("Spotify"))
         self._update_track_table_drag_mode()
         self._update_empty_playlist_state()
+
+    def _configure_spotify(self):
+        client_id, accepted = QInputDialog.getText(
+            self,
+            "Spotify Client ID",
+            "Paste the 32-character Client ID from Spotify Dashboard > Settings.\nDo not paste Client Secret:",
+            text=self.vm.spotify_client_id(),
+        )
+        if not accepted:
+            return
+        redirect_uri, accepted = QInputDialog.getText(
+            self,
+            "Spotify Redirect URI",
+            "Redirect URI. It must be added exactly in Spotify Dashboard:",
+            text=self.vm.spotify_redirect_uri(),
+        )
+        if accepted and self.vm.set_spotify_client(client_id, redirect_uri):
+            self._sync_spotify_status()
+
+    def _authorize_spotify(self):
+        QMessageBox.information(
+            self,
+            "Spotify Sign In",
+            "Your browser will open Spotify. After approving access, return to ZZvuk.",
+        )
+        if self.vm.authorize_spotify():
+            self._sync_spotify_status()
+
+    def _load_spotify_saved_tracks(self):
+        if self.vm.load_spotify_saved_tracks():
+            self._sync_spotify_status()
+
+    def _search_spotify(self):
+        query, accepted = QInputDialog.getText(
+            self,
+            "Spotify Search",
+            "Artist or track:",
+            text=self.search_edit.text(),
+        )
+        if accepted and query.strip() and self.vm.search_spotify(query):
+            self._sync_spotify_status()
+
+    def _load_spotify_charts(self):
+        if self.vm.load_spotify_charts():
+            self._sync_spotify_status()
+
+    def _choose_spotify_playlist(self):
+        playlists = self.vm.load_spotify_playlists()
+        self._sync_spotify_status()
+        if not playlists:
+            return
+        labels = [playlist.label for playlist in playlists]
+        selected, accepted = QInputDialog.getItem(
+            self,
+            "Spotify Playlists",
+            "Choose playlist:",
+            labels,
+            0,
+            False,
+        )
+        if not accepted or not selected:
+            return
+        index = labels.index(selected)
+        playlist = playlists[index]
+        self.vm.load_spotify_playlist_tracks(playlist.id, playlist.name)
+
+    def _logout_spotify(self):
+        self.vm.logout_spotify()
+        self._sync_spotify_status()
+
+    def _sync_spotify_status(self):
+        self.spotify_status_label.setText(self.vm.spotify_status())
 
     def _add_radio_station(self):
         name, accepted = QInputDialog.getText(
@@ -1205,7 +1361,7 @@ class MainWindow(QMainWindow):
 
         add_menu = menu.addMenu("Add to playlist")
         playlists = self.vm.custom_playlists()
-        add_menu.setEnabled(not self.vm.is_radio_mode())
+        add_menu.setEnabled(not self.vm.is_radio_mode() and not self.vm.is_spotify_mode())
         if not playlists:
             empty_action = add_menu.addAction("No playlists yet")
             empty_action.setEnabled(False)

@@ -23,6 +23,7 @@ from app.services.library_scanner import LibraryScanner
 from app.services.playlists_service import PlaylistsService
 from app.services.radio_service import RadioService
 from app.services.settings_service import SettingsService
+from app.services.spotify_service import SpotifyError, SpotifyPlaylist, SpotifyService
 
 
 class ScanWorker(QObject):
@@ -296,6 +297,7 @@ class MainViewModel(QObject):
         self._player = AudioPlayerService()
         self._playlists = PlaylistsService()
         self._radio = RadioService()
+        self._spotify = SpotifyService()
         self._settings = SettingsService()
 
         self._folders = self._settings.library_folders()
@@ -305,9 +307,13 @@ class MainViewModel(QObject):
         self._search_text = ""
         self._collection_mode = "Library"
         self._current_playlist_id = None
+        self._current_spotify_playlist_id = None
+        self._current_spotify_playlist_name = ""
         self._listen_counts = {}
         self._favourites = set()
         self._radio_tracks = []
+        self._spotify_tracks = []
+        self._spotify_playlists = []
 
         self.table_model = TrackTableModel()
         self.grid_model = TrackGridModel()
@@ -375,8 +381,10 @@ class MainViewModel(QObject):
         self._apply_filter()
 
     def set_collection_mode(self, mode):
-        valid = {"Library", "Daily Mix", "Top Hits", "Favourites", "Radio"}
+        valid = {"Library", "Daily Mix", "Top Hits", "Favourites", "Radio", "Spotify Saved", "Spotify Search", "Spotify Charts"}
         self._current_playlist_id = None
+        self._current_spotify_playlist_id = None
+        self._current_spotify_playlist_name = ""
         self._collection_mode = mode if mode in valid else "Library"
         self.collection_mode_changed.emit(self._collection_mode, "")
         self._sync_table_capabilities()
@@ -390,9 +398,93 @@ class MainViewModel(QObject):
             return
         self._collection_mode = "Playlist"
         self._current_playlist_id = playlist.id
+        self._current_spotify_playlist_id = None
+        self._current_spotify_playlist_name = ""
         self.collection_mode_changed.emit("Playlist", playlist.id)
         self._sync_table_capabilities()
         self._apply_filter()
+
+    def set_spotify_client(self, client_id: str, redirect_uri: str) -> bool:
+        try:
+            self._spotify.set_client(client_id, redirect_uri)
+        except SpotifyError as exc:
+            self.playlist_feedback.emit(str(exc))
+            return False
+        self.playlist_feedback.emit("Spotify Client ID saved.")
+        return True
+
+    def spotify_client_id(self) -> str:
+        return self._spotify.client_id()
+
+    def spotify_redirect_uri(self) -> str:
+        return self._spotify.redirect_uri()
+
+    def spotify_status(self) -> str:
+        if not self._spotify.is_configured():
+            return "Spotify: set Client ID"
+        if not self._spotify.is_authorized():
+            return "Spotify: sign in"
+        return "Spotify: connected"
+
+    def authorize_spotify(self) -> bool:
+        try:
+            self._spotify.authorize()
+        except SpotifyError as exc:
+            self.playlist_feedback.emit(str(exc))
+            return False
+        self.playlist_feedback.emit("Spotify connected.")
+        return True
+
+    def logout_spotify(self) -> None:
+        self._spotify.logout()
+        self._spotify_tracks = []
+        self._spotify_playlists = []
+        if self._collection_mode.startswith("Spotify"):
+            self.set_collection_mode("Library")
+        self.playlist_feedback.emit("Spotify disconnected.")
+
+    def load_spotify_saved_tracks(self) -> bool:
+        return self._load_spotify_tracks(
+            "Spotify Saved",
+            lambda: self._spotify.current_user_saved_tracks(),
+            "Spotify saved tracks loaded.",
+        )
+
+    def search_spotify(self, query: str) -> bool:
+        return self._load_spotify_tracks(
+            "Spotify Search",
+            lambda: self._spotify.search_tracks(query),
+            "Spotify search complete.",
+        )
+
+    def load_spotify_charts(self) -> bool:
+        return self._load_spotify_tracks(
+            "Spotify Charts",
+            lambda: self._spotify.chart_tracks(),
+            "Spotify chart loaded.",
+        )
+
+    def load_spotify_playlists(self) -> list[SpotifyPlaylist]:
+        try:
+            self._spotify_playlists = self._spotify.current_user_playlists()
+        except SpotifyError as exc:
+            self.playlist_feedback.emit(str(exc))
+            return []
+        self.playlist_feedback.emit(f"{len(self._spotify_playlists)} Spotify playlists loaded.")
+        return list(self._spotify_playlists)
+
+    def spotify_playlists(self) -> list[SpotifyPlaylist]:
+        return list(self._spotify_playlists)
+
+    def load_spotify_playlist_tracks(self, playlist_id: str, name: str = "") -> bool:
+        self._current_spotify_playlist_id = playlist_id
+        self._current_spotify_playlist_name = name
+        return self._load_spotify_tracks(
+            "Spotify Playlist",
+            lambda: self._spotify.playlist_tracks(playlist_id),
+            "Spotify playlist loaded.",
+            playlist_id,
+        )
 
     def create_playlist(self, name: str) -> bool:
         try:
@@ -564,6 +656,9 @@ class MainViewModel(QObject):
     def is_radio_mode(self) -> bool:
         return self._collection_mode == "Radio"
 
+    def is_spotify_mode(self) -> bool:
+        return self._collection_mode.startswith("Spotify")
+
     def can_reorder_current_collection(self) -> bool:
         return self.is_custom_playlist_mode() and not self._search_text
 
@@ -607,11 +702,21 @@ class MainViewModel(QObject):
     def play_index(self, row):
         if not (0 <= row < len(self._filtered_tracks)):
             return
+        track = self._filtered_tracks[row]
+        if track.is_spotify and not track.stream_url:
+            self.playlist_feedback.emit("Spotify Web API provides only metadata and occasional 30-second previews.")
+            return
         self._player.set_playlist(self._filtered_tracks, start_index=row)
 
     def enqueue_tracks(self, tracks: list[Track]):
-        ordered_tracks = [track for track in tracks if track is not None]
+        ordered_tracks = [
+            track
+            for track in tracks
+            if track is not None and (not track.is_spotify or track.stream_url)
+        ]
         if not ordered_tracks:
+            if tracks:
+                self.playlist_feedback.emit("No playable previews are available for the selected Spotify tracks.")
             return
         for index, track in enumerate(ordered_tracks):
             self._player.append_to_playlist(track, play_immediately=index == 0)
@@ -724,6 +829,8 @@ class MainViewModel(QObject):
             return [t for t in self._all_tracks if str(t.path) in self._favourites]
         if mode == "Radio":
             return list(self._radio_tracks)
+        if mode.startswith("Spotify"):
+            return list(self._spotify_tracks)
         return list(self._all_tracks)
 
     def _on_position_changed(self, position_ms):
@@ -795,6 +902,15 @@ class MainViewModel(QObject):
             return f"Favourites: {len(self._favourites)}"
         if self._collection_mode == "Radio":
             return f"Internet Radio: {len(self._radio_tracks)} stations"
+        if self._collection_mode == "Spotify Saved":
+            return f"Spotify saved tracks: {len(self._spotify_tracks)}"
+        if self._collection_mode == "Spotify Search":
+            return f"Spotify search: {len(self._spotify_tracks)} results"
+        if self._collection_mode == "Spotify Charts":
+            return f"Spotify Global Top 50: {len(self._spotify_tracks)} tracks"
+        if self._collection_mode == "Spotify Playlist":
+            name = self._current_spotify_playlist_name or "playlist"
+            return f"Spotify {name}: {len(self._spotify_tracks)} tracks"
         return "Library"
 
     def _emit_playlists_changed(self):
@@ -808,3 +924,24 @@ class MainViewModel(QObject):
 
     def _refresh_radio_tracks(self):
         self._radio_tracks = [station.to_track() for station in self._radio.all()]
+
+    def _load_spotify_tracks(self, mode: str, loader, success_message: str, playlist_id: str = "") -> bool:
+        try:
+            self._spotify_tracks = loader()
+        except SpotifyError as exc:
+            self.playlist_feedback.emit(str(exc))
+            return False
+        self._collection_mode = mode
+        self._current_playlist_id = None
+        if mode != "Spotify Playlist":
+            self._current_spotify_playlist_id = None
+            self._current_spotify_playlist_name = ""
+        self.collection_mode_changed.emit(mode, playlist_id)
+        self._sync_table_capabilities()
+        self._apply_filter()
+        playable = sum(1 for track in self._spotify_tracks if track.stream_url)
+        if playable < len(self._spotify_tracks):
+            self.playlist_feedback.emit(f"{success_message} {playable}/{len(self._spotify_tracks)} tracks have playable previews.")
+        else:
+            self.playlist_feedback.emit(success_message)
+        return True
